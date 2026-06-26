@@ -137,6 +137,7 @@ class FloatingButtonService : Service() {
             y = (120 * dp).toInt()
         }
 
+        if (::buttonView.isInitialized) return
         buttonView.setOnTouchListener(touchListener)
         windowManager.addView(buttonView, params)
         setupStatusView()
@@ -377,17 +378,14 @@ class FloatingButtonService : Service() {
         }
 
         withContext(Dispatchers.Main) {
-            hideStatus(1200)
             if (WhisperAccessibilityService.isRunning) {
+                hideStatus(1200)
                 WhisperAccessibilityService.inject(finalText)
             } else {
+                showStatus("Schritt 4 aktivieren!", Color.parseColor("#FF3B30"))
+                hideStatus(4000)
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", finalText))
-                Toast.makeText(
-                    this@FloatingButtonService,
-                    "Text kopiert — Schritt 4 in der WhisperFlow-App aktivieren",
-                    Toast.LENGTH_LONG
-                ).show()
             }
         }
     }
