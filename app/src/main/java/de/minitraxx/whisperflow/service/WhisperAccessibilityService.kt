@@ -35,15 +35,29 @@ class WhisperAccessibilityService : AccessibilityService() {
     fun injectText(text: String) {
         handler.post {
             val root = rootInActiveWindow ?: return@post
-            var node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 ?: findFirstEditable(root)
             if (node != null) {
                 node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                 handler.postDelayed({
                     node.refresh()
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", text))
-                    node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                    // ACTION_SET_TEXT works in Gmail and many apps where ACTION_PASTE fails.
+                    // Append to any existing text so we don't wipe the field.
+                    val existing = node.text?.toString() ?: ""
+                    val combined = if (existing.isEmpty()) text else "$existing $text"
+                    val bundle = android.os.Bundle().apply {
+                        putCharSequence(
+                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                            combined
+                        )
+                    }
+                    val ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                    if (!ok) {
+                        // Fallback: clipboard + paste (works in WhatsApp etc.)
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", text))
+                        node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                    }
                 }, 150)
             }
         }
