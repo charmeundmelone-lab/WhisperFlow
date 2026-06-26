@@ -18,7 +18,12 @@ class WhisperAccessibilityService : AccessibilityService() {
         instance = this
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        event?.packageName?.toString()?.let { pkg ->
+            if (pkg.isNotEmpty()) activePackage = pkg
+        }
+    }
+
     override fun onInterrupt() {}
 
     override fun onDestroy() {
@@ -39,6 +44,8 @@ class WhisperAccessibilityService : AccessibilityService() {
 
     companion object {
         var isRunning = false
+            private set
+        var activePackage = ""
             private set
         private var instance: WhisperAccessibilityService? = null
 

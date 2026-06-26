@@ -342,9 +342,29 @@ class FloatingButtonService : Service() {
         }
         file.delete()
 
+        // M7: aktive App erkennen → Profil automatisch wählen
+        val activePackage = WhisperAccessibilityService.activePackage
+        val effectiveProfile = when {
+            activePackage.contains("whatsapp") -> PROFILE_WHATSAPP
+            activePackage in setOf(
+                "com.google.android.gm",
+                "com.microsoft.office.outlook",
+                "com.samsung.android.email.provider",
+                "de.telekom.mail",
+                "com.nine.email",
+                "com.ionos.email"
+            ) -> PROFILE_PROFESSIONAL
+            else -> profile
+        }
+
         val finalText = if (anthropicKey.isNotBlank()) {
-            showStatus("Korrigiere...", Color.parseColor("#8E8E93"))
-            val systemPrompt = when (profile) {
+            val profileLabel = when (effectiveProfile) {
+                PROFILE_PROFESSIONAL -> "Professionell"
+                PROFILE_FORMAL -> "Formal"
+                else -> "WhatsApp"
+            }
+            showStatus("Korrigiere [$profileLabel]...", Color.parseColor("#8E8E93"))
+            val systemPrompt = when (effectiveProfile) {
                 PROFILE_PROFESSIONAL -> StylePrompts.PROFESSIONAL
                 PROFILE_FORMAL -> StylePrompts.FORMAL
                 else -> StylePrompts.WHATSAPP
@@ -363,7 +383,11 @@ class FloatingButtonService : Service() {
             } else {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", finalText))
-                Toast.makeText(this@FloatingButtonService, finalText, Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this@FloatingButtonService,
+                    "Text kopiert — Schritt 4 in der WhisperFlow-App aktivieren",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }

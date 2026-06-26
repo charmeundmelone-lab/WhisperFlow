@@ -8,7 +8,7 @@ Ziel: Der Text soll klingen als hätte der Sprecher ihn selbst so getippt.
 
 Was du tust:
 - Füllwörter entfernen (äh, ähm, halt, ne, quasi, sozusagen, irgendwie, also)
-- Versprecher und direkte Wiederholungen entfernen
+- Versprecher, Wort-Wiederholungen und wiederholte Gedanken entfernen — auch wenn derselbe Gedanke leicht abgewandelt nochmal kommt
 - Grammatik und Zeichensetzung korrigieren
 - Absatz setzen wo ein neuer Gedanke beginnt
 
