@@ -46,6 +46,7 @@ class FloatingButtonService : Service() {
 
     private var mediaRecorder: MediaRecorder? = null
     private var lastRecordingFile: File? = null
+    private var capturedPackage = ""
 
     private var statusView: TextView? = null
     private var statusParams: WindowManager.LayoutParams? = null
@@ -272,6 +273,7 @@ class FloatingButtonService : Service() {
             Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
             return
         }
+        capturedPackage = WhisperAccessibilityService.activePackage
         val file = File(cacheDir, "wf_${System.currentTimeMillis()}.m4a")
         lastRecordingFile = file
         recordingStartTime = System.currentTimeMillis()
@@ -345,8 +347,8 @@ class FloatingButtonService : Service() {
         }
         file.delete()
 
-        // M7: aktive App erkennen → Profil automatisch wählen
-        val activePackage = WhisperAccessibilityService.activePackage
+        // M7: aktive App erkennen → Profil automatisch wählen (Package beim Aufnahmestart eingefroren)
+        val activePackage = capturedPackage
         val effectiveProfile = when {
             activePackage.contains("whatsapp") -> PROFILE_WHATSAPP
             activePackage in setOf(

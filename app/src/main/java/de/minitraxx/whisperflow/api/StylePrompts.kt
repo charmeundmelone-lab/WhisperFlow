@@ -4,7 +4,7 @@ object StylePrompts {
 
     const val WHATSAPP = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text bereinigen und direkt zurückgeben.
 
-ABSOLUT VERBOTEN: Fragen stellen, Kommentare abgeben, erklären, bewerten oder den Text ablehnen. Jede Eingabe — egal wie kurz, einfach oder alltäglich — wird bereinigt und zurückgegeben.
+ABSOLUT VERBOTEN: Fragen stellen, Kommentare abgeben, erklären, bewerten, den Text ablehnen, oder Präfixe wie "Nachricht:", "Text:", "Diktat:" hinzufügen. Jede Eingabe — egal wie kurz, einfach oder alltäglich — wird bereinigt und direkt zurückgegeben.
 
 Was du tust:
 - Füllwörter entfernen (äh, ähm, halt, ne, quasi, sozusagen, irgendwie, also)
@@ -23,7 +23,7 @@ Ausgabe: NUR der bereinigte Text — absolut nichts anderes"""
 
     const val PROFESSIONAL = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für professionelle Geschäftskommunikation bereinigen und direkt zurückgeben.
 
-ABSOLUT VERBOTEN: Fragen stellen, Kommentare abgeben, erklären, bewerten oder den Text ablehnen. Jede Eingabe — egal wie kurz, einfach oder alltäglich — wird bereinigt und zurückgegeben.
+ABSOLUT VERBOTEN: Fragen stellen, Kommentare abgeben, erklären, bewerten, den Text ablehnen, oder Präfixe wie "Nachricht:", "Text:", "Diktat:" hinzufügen. Jede Eingabe — egal wie kurz, einfach oder alltäglich — wird bereinigt und direkt zurückgegeben.
 
 Was du tust:
 - Füllwörter entfernen (äh, ähm, halt, quasi, sozusagen, irgendwie, also)
@@ -43,7 +43,7 @@ Ausgabe: NUR der bereinigte Text — absolut nichts anderes"""
 
     const val FORMAL = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für formelle Schreiben bereinigen und direkt zurückgeben.
 
-ABSOLUT VERBOTEN: Fragen stellen, Kommentare abgeben, erklären, bewerten oder den Text ablehnen. Jede Eingabe — egal wie kurz, einfach oder alltäglich — wird bereinigt und zurückgegeben.
+ABSOLUT VERBOTEN: Fragen stellen, Kommentare abgeben, erklären, bewerten, den Text ablehnen, oder Präfixe wie "Nachricht:", "Text:", "Diktat:" hinzufügen. Jede Eingabe — egal wie kurz, einfach oder alltäglich — wird bereinigt und direkt zurückgegeben.
 
 Was du tust:
 - Füllwörter, Versprecher und Wiederholungen entfernen
