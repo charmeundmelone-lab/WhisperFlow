@@ -126,7 +126,7 @@ fun MainScreen(
         SetupStep(
             number = "3",
             title = "Floating Button",
-            description = "Der schwebende Mikrofon-Button erscheint über allen Apps — verschiebbar, immer griffbereit.",
+            description = "Tippen = Start/Stopp  ·  Gedrückt halten = Walkie-Talkie",
             done = serviceRunning,
             actionLabel = if (serviceRunning) "Button stoppen" else "Button starten",
             showAction = overlayGranted && micGranted,
@@ -137,7 +137,7 @@ fun MainScreen(
         Spacer(Modifier.weight(1f))
 
         Text(
-            "Milestone 1 von 8  ·  Floating Button",
+            "Milestone 2 von 8  ·  Audio Recording",
             fontSize = 12.sp,
             color = Color(0xFF3A3A3C),
             modifier = Modifier.padding(bottom = 24.dp)

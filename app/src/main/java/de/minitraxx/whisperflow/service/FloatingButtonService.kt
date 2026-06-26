@@ -6,12 +6,17 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaRecorder
+import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.*
 import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 import de.minitraxx.whisperflow.MainActivity
 import de.minitraxx.whisperflow.R
+import java.io.File
 import kotlin.math.abs
 
 class FloatingButtonService : Service() {
@@ -21,6 +26,7 @@ class FloatingButtonService : Service() {
     private lateinit var params: WindowManager.LayoutParams
 
     private var isRecording = false
+    private var isWalkieTalkieMode = false
     private var initialX = 0
     private var initialY = 0
     private var initialTouchX = 0f
@@ -28,12 +34,25 @@ class FloatingButtonService : Service() {
     private var touchDownTime = 0L
     private var isDragging = false
 
+    private var mediaRecorder: MediaRecorder? = null
+    var lastRecordingFile: File? = null
+        private set
+
+    private val longPressHandler = Handler(Looper.getMainLooper())
+    private val longPressRunnable = Runnable {
+        if (!isDragging && !isRecording) {
+            isWalkieTalkieMode = true
+            startRecording()
+        }
+    }
+
     companion object {
         var isRunning = false
             private set
 
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "whisperflow_service"
+        private const val LONG_PRESS_MS = 500L
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, FloatingButtonService::class.java))
@@ -60,6 +79,8 @@ class FloatingButtonService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        longPressHandler.removeCallbacks(longPressRunnable)
+        if (isRecording) stopRecording()
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
         super.onDestroy()
     }
@@ -119,13 +140,17 @@ class FloatingButtonService : Service() {
                 initialTouchY = event.rawY
                 touchDownTime = System.currentTimeMillis()
                 isDragging = false
+                longPressHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
                 true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = (event.rawX - initialTouchX).toInt()
                 val dy = (event.rawY - initialTouchY).toInt()
                 if (abs(dx) > 8 || abs(dy) > 8) {
-                    isDragging = true
+                    if (!isDragging) {
+                        isDragging = true
+                        longPressHandler.removeCallbacks(longPressRunnable)
+                    }
                     params.x = (initialX + dx).coerceAtLeast(0)
                     params.y = (initialY + dy).coerceAtLeast(0)
                     windowManager.updateViewLayout(buttonView, params)
@@ -133,8 +158,15 @@ class FloatingButtonService : Service() {
                 true
             }
             MotionEvent.ACTION_UP -> {
-                if (!isDragging && System.currentTimeMillis() - touchDownTime < 350) {
-                    toggleRecording()
+                longPressHandler.removeCallbacks(longPressRunnable)
+                val elapsed = System.currentTimeMillis() - touchDownTime
+                when {
+                    isDragging -> { /* nur verschieben, kein toggle */ }
+                    isWalkieTalkieMode -> {
+                        isWalkieTalkieMode = false
+                        stopRecording()
+                    }
+                    elapsed < 350 -> toggleRecording()
                 }
                 true
             }
@@ -143,17 +175,45 @@ class FloatingButtonService : Service() {
     }
 
     private fun toggleRecording() {
-        isRecording = !isRecording
-        if (isRecording) {
+        if (isRecording) stopRecording() else startRecording()
+    }
+
+    private fun startRecording() {
+        val file = File(cacheDir, "wf_${System.currentTimeMillis()}.m4a")
+        lastRecordingFile = file
+        runCatching {
+            mediaRecorder = createMediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128_000)
+                setAudioSamplingRate(44_100)
+                setOutputFile(file.absolutePath)
+                prepare()
+                start()
+            }
+            isRecording = true
             applyRecordingStyle()
             pulse()
-        } else {
-            applyIdleStyle()
-            buttonView.animate().cancel()
-            buttonView.scaleX = 1f
-            buttonView.scaleY = 1f
         }
     }
+
+    private fun stopRecording() {
+        runCatching {
+            mediaRecorder?.apply { stop(); release() }
+        }
+        mediaRecorder = null
+        isRecording = false
+        applyIdleStyle()
+        buttonView.animate().cancel()
+        buttonView.scaleX = 1f
+        buttonView.scaleY = 1f
+    }
+
+    @Suppress("DEPRECATION")
+    private fun createMediaRecorder(): MediaRecorder =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this)
+        else MediaRecorder()
 
     private fun pulse() {
         if (!isRecording) return
