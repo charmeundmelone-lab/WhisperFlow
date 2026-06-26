@@ -205,29 +205,33 @@ fun MainScreen(
         )
 
         if (allSetUp) {
+            val openAiValid = openAiKey.startsWith("sk-") && openAiKey.length > 10
+
             Spacer(Modifier.height(24.dp))
-            BudgetCard(
-                spent = spent, budget = budget, remaining = remaining,
-                exceeded = budgetExceeded, onReset = onResetBudget
-            )
-            Spacer(Modifier.height(12.dp))
             ApiKeyCard(
                 label = "OpenAI API-Key",
                 hint = "platform.openai.com → API keys",
                 placeholder = "sk-...",
                 apiKey = openAiKey,
-                isValid = openAiKey.startsWith("sk-") && openAiKey.length > 10,
+                isValid = openAiValid,
                 onApiKeyChange = onOpenAiKeyChange
             )
             Spacer(Modifier.height(12.dp))
             ApiKeyCard(
-                label = "Anthropic API-Key",
-                hint = "console.anthropic.com → API keys",
+                label = "Anthropic API-Key (optional)",
+                hint = "Für Stil-Korrektur · console.anthropic.com → API keys",
                 placeholder = "sk-ant-...",
                 apiKey = anthropicKey,
                 isValid = anthropicKey.startsWith("sk-ant-") && anthropicKey.length > 10,
                 onApiKeyChange = onAnthropicKeyChange
             )
+            if (openAiValid) {
+                Spacer(Modifier.height(12.dp))
+                BudgetCard(
+                    spent = spent, budget = budget, remaining = remaining,
+                    exceeded = budgetExceeded, onReset = onResetBudget
+                )
+            }
         }
 
         Spacer(Modifier.height(32.dp))
