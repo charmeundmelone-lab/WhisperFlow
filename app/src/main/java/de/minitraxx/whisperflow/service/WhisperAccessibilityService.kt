@@ -53,14 +53,11 @@ class WhisperAccessibilityService : AccessibilityService() {
                     }
                     val ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
                     if (!ok) {
-                        // Fallback 1: clipboard + paste on the node (WhatsApp etc.)
+                        // Fallback: clipboard + paste (works in WhatsApp etc.; in Gmail
+                        // the text lands in clipboard so the user can long-press → Einfügen)
                         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", text))
-                        val pasted = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-                        if (!pasted) {
-                            // Fallback 2: global paste (Gmail WebView, other complex views)
-                            performGlobalAction(GLOBAL_ACTION_PASTE)
-                        }
+                        node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
                     }
                 }, 150)
             }
