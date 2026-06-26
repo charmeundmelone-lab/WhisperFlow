@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
                 val prefs = remember { getSharedPreferences(FloatingButtonService.PREFS_NAME, Context.MODE_PRIVATE) }
                 var openAiKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_OPENAI_API_KEY, "") ?: "") }
                 var anthropicKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, "") ?: "") }
+                var styleProfile by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_STYLE_PROFILE, FloatingButtonService.PROFILE_WHATSAPP) ?: FloatingButtonService.PROFILE_WHATSAPP) }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val budget = remember(refresh) { CostTracker.getBudget(this) }
@@ -119,8 +121,17 @@ class MainActivity : ComponentActivity() {
                         anthropicKey = key.trim()
                         prefs.edit().putString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, key.trim()).apply()
                     },
+                    styleProfile = styleProfile,
+                    onStyleProfileChange = { profile ->
+                        styleProfile = profile
+                        prefs.edit().putString(FloatingButtonService.KEY_STYLE_PROFILE, profile).apply()
+                    },
                     onResetBudget = {
                         CostTracker.reset(this)
+                        refreshTrigger++
+                    },
+                    onBudgetLimitChange = { eur ->
+                        CostTracker.setBudget(eur, this)
                         refreshTrigger++
                     }
                 )
@@ -139,6 +150,7 @@ fun MainScreen(
     anthropicKey: String,
     spent: Double,
     budget: Double,
+    styleProfile: String,
     onRequestOverlay: () -> Unit,
     onRequestMic: () -> Unit,
     onStartService: () -> Unit,
@@ -146,7 +158,9 @@ fun MainScreen(
     onRequestAccessibility: () -> Unit,
     onOpenAiKeyChange: (String) -> Unit,
     onAnthropicKeyChange: (String) -> Unit,
-    onResetBudget: () -> Unit
+    onStyleProfileChange: (String) -> Unit,
+    onResetBudget: () -> Unit,
+    onBudgetLimitChange: (Double) -> Unit
 ) {
     val allSetUp = overlayGranted && micGranted
     val budgetExceeded = spent >= budget
@@ -227,20 +241,65 @@ fun MainScreen(
             )
             if (openAiValid) {
                 Spacer(Modifier.height(12.dp))
+                ProfileCard(currentProfile = styleProfile, onProfileChange = onStyleProfileChange)
+                Spacer(Modifier.height(12.dp))
                 BudgetCard(
                     spent = spent, budget = budget, remaining = remaining,
-                    exceeded = budgetExceeded, onReset = onResetBudget
+                    exceeded = budgetExceeded, onReset = onResetBudget,
+                    onBudgetLimitChange = onBudgetLimitChange
                 )
             }
         }
 
         Spacer(Modifier.height(32.dp))
         Text(
-            "Milestone 4+5 von 8  ·  Claude Korrektur + Texteingabe",
+            "Milestone 6 von 8  ·  Status-Overlay + Stil-Profile + Budget-Limit",
             fontSize = 12.sp,
             color = Color(0xFF3A3A3C),
             modifier = Modifier.padding(bottom = 24.dp)
         )
+    }
+}
+
+@Composable
+fun ProfileCard(
+    currentProfile: String,
+    onProfileChange: (String) -> Unit
+) {
+    val profiles = listOf(
+        "whatsapp" to "WhatsApp",
+        "professional" to "Professionell",
+        "formal" to "Formal"
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Stil-Profil", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(
+                "Wie soll Claude den Text formulieren?",
+                color = Color(0xFF8E8E93), fontSize = 13.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                profiles.forEach { (key, label) ->
+                    val selected = currentProfile == key
+                    Button(
+                        onClick = { onProfileChange(key) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) Color(0xFF0A84FF) else Color(0xFF2C2C2E)
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        Text(label, fontSize = 12.sp, color = Color.White)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -250,8 +309,11 @@ fun BudgetCard(
     budget: Double,
     remaining: Double,
     exceeded: Boolean,
-    onReset: () -> Unit
+    onReset: () -> Unit,
+    onBudgetLimitChange: (Double) -> Unit
 ) {
+    var budgetInput by remember(budget) { mutableStateOf("%.0f".format(budget)) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
@@ -296,6 +358,31 @@ fun BudgetCard(
                         Text("Reset", color = Color(0xFF0A84FF), fontSize = 12.sp)
                     }
                 }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Limit:", color = Color(0xFF8E8E93), fontSize = 13.sp)
+                Spacer(Modifier.width(8.dp))
+                OutlinedTextField(
+                    value = budgetInput,
+                    onValueChange = { v ->
+                        budgetInput = v.filter { it.isDigit() || it == '.' }
+                        v.toDoubleOrNull()?.let { if (it > 0) onBudgetLimitChange(it) }
+                    },
+                    modifier = Modifier.width(80.dp),
+                    suffix = { Text("€", color = Color(0xFF8E8E93), fontSize = 13.sp) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF0A84FF),
+                        unfocusedBorderColor = Color(0xFF3A3A3C),
+                        cursorColor = Color(0xFF0A84FF)
+                    ),
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+                )
             }
             if (exceeded) {
                 Spacer(Modifier.height(8.dp))

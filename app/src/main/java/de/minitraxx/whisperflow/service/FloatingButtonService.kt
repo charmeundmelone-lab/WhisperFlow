@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.view.*
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import de.minitraxx.whisperflow.MainActivity
@@ -46,6 +47,11 @@ class FloatingButtonService : Service() {
     private var mediaRecorder: MediaRecorder? = null
     private var lastRecordingFile: File? = null
 
+    private var statusView: TextView? = null
+    private var statusParams: WindowManager.LayoutParams? = null
+    private val timerHandler = Handler(Looper.getMainLooper())
+    private var recordingSeconds = 0
+
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val longPressHandler = Handler(Looper.getMainLooper())
@@ -67,6 +73,10 @@ class FloatingButtonService : Service() {
         const val PREFS_NAME = "whisperflow_prefs"
         const val KEY_OPENAI_API_KEY = "openai_api_key"
         const val KEY_ANTHROPIC_API_KEY = "anthropic_api_key"
+        const val KEY_STYLE_PROFILE = "style_profile"
+        const val PROFILE_WHATSAPP = "whatsapp"
+        const val PROFILE_PROFESSIONAL = "professional"
+        const val PROFILE_FORMAL = "formal"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, FloatingButtonService::class.java))
@@ -94,9 +104,12 @@ class FloatingButtonService : Service() {
     override fun onDestroy() {
         isRunning = false
         longPressHandler.removeCallbacks(longPressRunnable)
+        timerHandler.removeCallbacksAndMessages(null)
         serviceScope.cancel()
         if (isRecording) stopRecording(transcribe = false)
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
+        runCatching { statusView?.let { windowManager.removeView(it) } }
+        statusView = null
         super.onDestroy()
     }
 
@@ -126,6 +139,64 @@ class FloatingButtonService : Service() {
 
         buttonView.setOnTouchListener(touchListener)
         windowManager.addView(buttonView, params)
+        setupStatusView()
+    }
+
+    private fun setupStatusView() {
+        val dp = resources.displayMetrics.density
+        val tv = TextView(this).apply {
+            setPadding((12 * dp).toInt(), (6 * dp).toInt(), (12 * dp).toInt(), (6 * dp).toInt())
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20 * dp
+                setColor(Color.parseColor("#E6000000"))
+            }
+            visibility = android.view.View.GONE
+        }
+        val sp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = params.x + (70 * dp).toInt()
+            y = params.y + (16 * dp).toInt()
+        }
+        statusView = tv
+        statusParams = sp
+        windowManager.addView(tv, sp)
+    }
+
+    private fun showStatus(text: String, color: Int = Color.WHITE) {
+        Handler(Looper.getMainLooper()).post {
+            statusView?.apply {
+                setTextColor(color)
+                this.text = text
+                visibility = android.view.View.VISIBLE
+            }
+        }
+    }
+
+    private fun hideStatus(delayMs: Long = 0) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            statusView?.visibility = android.view.View.GONE
+        }, delayMs)
+    }
+
+    private val timerRunnable = object : Runnable {
+        override fun run() {
+            if (!isRecording) return
+            val s = recordingSeconds
+            val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
+                       else "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+            showStatus("● $time", Color.parseColor("#FF3B30"))
+            recordingSeconds++
+            timerHandler.postDelayed(this, 1000)
+        }
     }
 
     private fun applyIdleStyle() {
@@ -214,6 +285,8 @@ class FloatingButtonService : Service() {
             }
             isRecording = true
             applyRecordingStyle()
+            recordingSeconds = 0
+            timerHandler.post(timerRunnable)
             pulse()
         }.onFailure {
             isRecording = false
@@ -235,11 +308,15 @@ class FloatingButtonService : Service() {
         val file = lastRecordingFile ?: return
         lastRecordingFile = null
 
+        timerHandler.removeCallbacks(timerRunnable)
+
         if (!transcribe || durationMs < 300) {
             file.delete()
+            hideStatus()
             return
         }
 
+        showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
         CostTracker.recordAudio(durationMs / 1000L, this)
         serviceScope.launch { processAudio(file) }
     }
@@ -248,32 +325,39 @@ class FloatingButtonService : Service() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
         val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
+        val profile = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
 
         if (openAiKey.isBlank()) {
             showToast("Kein OpenAI API-Key — bitte in der WhisperFlow-App eintragen")
+            hideStatus()
             file.delete()
             return
         }
 
-        // Schritt 1: Whisper transkribiert
         val transcription = WhisperClient.transcribe(file, openAiKey).getOrElse {
             showToast("Whisper-Fehler: ${it.message?.take(60)}")
+            hideStatus()
             file.delete()
             return
         }
         file.delete()
 
-        // Schritt 2: Claude korrigiert (optional)
         val finalText = if (anthropicKey.isNotBlank()) {
+            showStatus("Korrigiere...", Color.parseColor("#8E8E93"))
+            val systemPrompt = when (profile) {
+                PROFILE_PROFESSIONAL -> StylePrompts.PROFESSIONAL
+                PROFILE_FORMAL -> StylePrompts.FORMAL
+                else -> StylePrompts.WHATSAPP
+            }
             CostTracker.recordClaude(this)
-            ClaudeClient.correct(transcription, StylePrompts.WHATSAPP, anthropicKey)
+            ClaudeClient.correct(transcription, systemPrompt, anthropicKey)
                 .getOrDefault(transcription)
         } else {
             transcription
         }
 
-        // Schritt 3: Text injizieren
         withContext(Dispatchers.Main) {
+            hideStatus(1200)
             if (WhisperAccessibilityService.isRunning) {
                 WhisperAccessibilityService.inject(finalText)
             } else {
