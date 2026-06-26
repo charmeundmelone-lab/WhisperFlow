@@ -114,6 +114,9 @@ class FloatingButtonService : Service() {
     }
 
     private fun showFloatingButton() {
+        runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
+        runCatching { statusView?.let { windowManager.removeView(it) }; statusView = null }
+
         val dp = resources.displayMetrics.density
         val size = (62 * dp).toInt()
         val pad = (13 * dp).toInt()
@@ -137,7 +140,6 @@ class FloatingButtonService : Service() {
             y = (120 * dp).toInt()
         }
 
-        if (::buttonView.isInitialized) return
         buttonView.setOnTouchListener(touchListener)
         windowManager.addView(buttonView, params)
         setupStatusView()
