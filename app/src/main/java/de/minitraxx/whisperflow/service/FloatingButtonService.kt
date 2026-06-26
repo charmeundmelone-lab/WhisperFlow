@@ -13,9 +13,13 @@ import android.os.IBinder
 import android.os.Looper
 import android.view.*
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import de.minitraxx.whisperflow.MainActivity
 import de.minitraxx.whisperflow.R
+import de.minitraxx.whisperflow.api.WhisperClient
+import de.minitraxx.whisperflow.util.CostTracker
+import kotlinx.coroutines.*
 import java.io.File
 import kotlin.math.abs
 
@@ -33,10 +37,12 @@ class FloatingButtonService : Service() {
     private var initialTouchY = 0f
     private var touchDownTime = 0L
     private var isDragging = false
+    private var recordingStartTime = 0L
 
     private var mediaRecorder: MediaRecorder? = null
-    var lastRecordingFile: File? = null
-        private set
+    private var lastRecordingFile: File? = null
+
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val longPressHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable {
@@ -53,6 +59,9 @@ class FloatingButtonService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "whisperflow_service"
         private const val LONG_PRESS_MS = 500L
+
+        const val PREFS_NAME = "whisperflow_prefs"
+        const val KEY_GROQ_API_KEY = "groq_api_key"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, FloatingButtonService::class.java))
@@ -80,7 +89,8 @@ class FloatingButtonService : Service() {
     override fun onDestroy() {
         isRunning = false
         longPressHandler.removeCallbacks(longPressRunnable)
-        if (isRecording) stopRecording()
+        serviceScope.cancel()
+        if (isRecording) stopRecording(transcribe = false)
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
         super.onDestroy()
     }
@@ -161,10 +171,10 @@ class FloatingButtonService : Service() {
                 longPressHandler.removeCallbacks(longPressRunnable)
                 val elapsed = System.currentTimeMillis() - touchDownTime
                 when {
-                    isDragging -> { /* nur verschieben, kein toggle */ }
+                    isDragging -> { /* nur verschieben */ }
                     isWalkieTalkieMode -> {
                         isWalkieTalkieMode = false
-                        stopRecording()
+                        stopRecording(transcribe = true)
                     }
                     elapsed < 350 -> toggleRecording()
                 }
@@ -175,12 +185,17 @@ class FloatingButtonService : Service() {
     }
 
     private fun toggleRecording() {
-        if (isRecording) stopRecording() else startRecording()
+        if (isRecording) stopRecording(transcribe = true) else startRecording()
     }
 
     private fun startRecording() {
+        if (CostTracker.isExceeded(this)) {
+            Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
+            return
+        }
         val file = File(cacheDir, "wf_${System.currentTimeMillis()}.m4a")
         lastRecordingFile = file
+        recordingStartTime = System.currentTimeMillis()
         runCatching {
             mediaRecorder = createMediaRecorder().apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -195,19 +210,54 @@ class FloatingButtonService : Service() {
             isRecording = true
             applyRecordingStyle()
             pulse()
+        }.onFailure {
+            isRecording = false
+            lastRecordingFile = null
+            file.delete()
         }
     }
 
-    private fun stopRecording() {
-        runCatching {
-            mediaRecorder?.apply { stop(); release() }
-        }
+    private fun stopRecording(transcribe: Boolean) {
+        val durationMs = (System.currentTimeMillis() - recordingStartTime).coerceAtLeast(0)
+        runCatching { mediaRecorder?.apply { stop(); release() } }
         mediaRecorder = null
         isRecording = false
         applyIdleStyle()
         buttonView.animate().cancel()
         buttonView.scaleX = 1f
         buttonView.scaleY = 1f
+
+        val file = lastRecordingFile ?: return
+        lastRecordingFile = null
+
+        if (!transcribe || durationMs < 300) {
+            file.delete()
+            return
+        }
+
+        CostTracker.recordAudio(durationMs / 1000L, this)
+        serviceScope.launch { transcribeAudio(file) }
+    }
+
+    private suspend fun transcribeAudio(file: File) {
+        val apiKey = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_GROQ_API_KEY, "") ?: ""
+
+        if (apiKey.isBlank()) {
+            showToast("Kein API-Key — bitte in der WhisperFlow-App eintragen")
+            file.delete()
+            return
+        }
+
+        WhisperClient.transcribe(file, apiKey)
+            .onSuccess { text -> showToast(text) }
+            .onFailure { showToast("Fehler: ${it.message?.take(80)}") }
+
+        file.delete()
+    }
+
+    private suspend fun showToast(text: String) = withContext(Dispatchers.Main) {
+        Toast.makeText(this@FloatingButtonService, text, Toast.LENGTH_LONG).show()
     }
 
     @Suppress("DEPRECATION")

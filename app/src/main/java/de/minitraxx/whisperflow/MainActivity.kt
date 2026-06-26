@@ -1,6 +1,7 @@
 package de.minitraxx.whisperflow
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -12,21 +13,29 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.minitraxx.whisperflow.service.FloatingButtonService
 import de.minitraxx.whisperflow.ui.theme.WhisperFlowTheme
+import de.minitraxx.whisperflow.util.CostTracker
 
 class MainActivity : ComponentActivity() {
 
     private var refreshTrigger by mutableStateOf(0)
+    private var userManuallyStopped = false
 
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -35,6 +44,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshTrigger++
+        tryAutoStart()
+    }
+
+    private fun tryAutoStart() {
+        val canStart = Settings.canDrawOverlays(this) &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (canStart && !FloatingButtonService.isRunning && !userManuallyStopped) {
+            FloatingButtonService.start(this)
+            refreshTrigger++
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,23 +67,42 @@ class MainActivity : ComponentActivity() {
                     checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                 }
                 val serviceRunning = remember(refresh) { FloatingButtonService.isRunning }
+
+                val prefs = remember { getSharedPreferences(FloatingButtonService.PREFS_NAME, Context.MODE_PRIVATE) }
+                var groqApiKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_GROQ_API_KEY, "") ?: "") }
+
+                val spent = remember(refresh) { CostTracker.getSpent(this) }
+                val budget = remember(refresh) { CostTracker.getBudget(this) }
+
                 MainScreen(
                     overlayGranted = overlayGranted,
                     micGranted = micGranted,
                     serviceRunning = serviceRunning,
+                    groqApiKey = groqApiKey,
+                    spent = spent,
+                    budget = budget,
                     onRequestOverlay = {
-                        startActivity(
-                            Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:$packageName")
-                            )
-                        )
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                     },
-                    onRequestMic = {
-                        requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    onRequestMic = { requestMicPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                    onStartService = {
+                        userManuallyStopped = false
+                        FloatingButtonService.start(this)
+                        refreshTrigger++
                     },
-                    onStartService = { FloatingButtonService.start(this) },
-                    onStopService = { FloatingButtonService.stop(this) }
+                    onStopService = {
+                        userManuallyStopped = true
+                        FloatingButtonService.stop(this)
+                        refreshTrigger++
+                    },
+                    onApiKeyChange = { key ->
+                        groqApiKey = key
+                        prefs.edit().putString(FloatingButtonService.KEY_GROQ_API_KEY, key).apply()
+                    },
+                    onResetBudget = {
+                        CostTracker.reset(this)
+                        refreshTrigger++
+                    }
                 )
             }
         }
@@ -76,16 +114,26 @@ fun MainScreen(
     overlayGranted: Boolean,
     micGranted: Boolean,
     serviceRunning: Boolean,
+    groqApiKey: String,
+    spent: Double,
+    budget: Double,
     onRequestOverlay: () -> Unit,
     onRequestMic: () -> Unit,
     onStartService: () -> Unit,
-    onStopService: () -> Unit
+    onStopService: () -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onResetBudget: () -> Unit
 ) {
+    val allSetUp = overlayGranted && micGranted
+    val budgetExceeded = spent >= budget
+    val remaining = (budget - spent).coerceAtLeast(0.0)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .systemBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -100,48 +148,170 @@ fun MainScreen(
         )
 
         SetupStep(
-            number = "1",
-            title = "Overlay-Berechtigung",
-            description = "WhisperFlow braucht die Erlaubnis, einen Button über anderen Apps anzuzeigen.",
-            done = overlayGranted,
-            actionLabel = "Berechtigung erteilen",
-            showAction = !overlayGranted,
-            onAction = onRequestOverlay
+            number = "1", title = "Overlay-Berechtigung",
+            description = "Erlaubnis, den Button über anderen Apps anzuzeigen.",
+            done = overlayGranted, actionLabel = "Berechtigung erteilen",
+            showAction = !overlayGranted, onAction = onRequestOverlay
         )
-
         Spacer(Modifier.height(12.dp))
-
         SetupStep(
-            number = "2",
-            title = "Mikrofon-Berechtigung",
-            description = "Benötigt damit du später diktieren kannst.",
-            done = micGranted,
-            actionLabel = "Erlauben",
-            showAction = overlayGranted && !micGranted,
-            onAction = onRequestMic
+            number = "2", title = "Mikrofon-Berechtigung",
+            description = "Benötigt für die Sprachaufnahme.",
+            done = micGranted, actionLabel = "Erlauben",
+            showAction = overlayGranted && !micGranted, onAction = onRequestMic
         )
-
         Spacer(Modifier.height(12.dp))
-
         SetupStep(
-            number = "3",
-            title = "Floating Button",
+            number = "3", title = "Floating Button",
             description = "Tippen = Start/Stopp  ·  Gedrückt halten = Walkie-Talkie",
             done = serviceRunning,
             actionLabel = if (serviceRunning) "Button stoppen" else "Button starten",
-            showAction = overlayGranted && micGranted,
+            showAction = allSetUp,
             actionDestructive = serviceRunning,
             onAction = if (serviceRunning) onStopService else onStartService
         )
 
-        Spacer(Modifier.weight(1f))
+        if (allSetUp) {
+            Spacer(Modifier.height(24.dp))
+            BudgetCard(
+                spent = spent, budget = budget, remaining = remaining,
+                exceeded = budgetExceeded, onReset = onResetBudget
+            )
+            Spacer(Modifier.height(12.dp))
+            ApiKeyCard(apiKey = groqApiKey, onApiKeyChange = onApiKeyChange)
+        }
 
+        Spacer(Modifier.height(32.dp))
         Text(
-            "Milestone 2 von 8  ·  Audio Recording",
+            "Milestone 3 von 8  ·  Whisper Transkription",
             fontSize = 12.sp,
             color = Color(0xFF3A3A3C),
             modifier = Modifier.padding(bottom = 24.dp)
         )
+    }
+}
+
+@Composable
+fun BudgetCard(
+    spent: Double,
+    budget: Double,
+    remaining: Double,
+    exceeded: Boolean,
+    onReset: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Guthaben",
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    if (exceeded) "Aufgebraucht" else "%.3f € übrig".format(remaining),
+                    color = if (exceeded) Color(0xFFFF453A) else Color(0xFF30D158),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = { (spent / budget).toFloat().coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+                color = if (exceeded) Color(0xFFFF453A) else Color(0xFF0A84FF),
+                trackColor = Color(0xFF2C2C2E)
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "%.4f € von %.2f € genutzt".format(spent, budget),
+                    color = Color(0xFF8E8E93),
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                if (exceeded) {
+                    TextButton(
+                        onClick = onReset,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("Reset", color = Color(0xFF0A84FF), fontSize = 12.sp)
+                    }
+                }
+            }
+            if (exceeded) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Guthaben aufgebraucht. Konto auf groq.com aufladen, dann Reset tippen.",
+                    color = Color(0xFFFF453A),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
+    var showKey by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Groq API-Key",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp
+            )
+            Text(
+                "Kostenlos auf groq.com  ·  ~9× günstiger als OpenAI",
+                color = Color(0xFF8E8E93),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = onApiKeyChange,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("gsk_...", color = Color(0xFF48484A)) },
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    TextButton(onClick = { showKey = !showKey }) {
+                        Text(
+                            if (showKey) "Verbergen" else "Anzeigen",
+                            color = Color(0xFF8E8E93),
+                            fontSize = 12.sp
+                        )
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF0A84FF),
+                    unfocusedBorderColor = Color(0xFF3A3A3C),
+                    cursorColor = Color(0xFF0A84FF)
+                ),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp)
+            )
+            if (apiKey.startsWith("gsk_") && apiKey.length > 10) {
+                Spacer(Modifier.height(6.dp))
+                Text("Key erkannt — bereit zum Diktieren", color = Color(0xFF30D158), fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -161,10 +331,7 @@ fun SetupStep(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.Top
-        ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
             Box(
                 modifier = Modifier
                     .size(32.dp)
@@ -181,9 +348,7 @@ fun SetupStep(
                     fontSize = 13.sp
                 )
             }
-
             Spacer(Modifier.width(12.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 Text(
