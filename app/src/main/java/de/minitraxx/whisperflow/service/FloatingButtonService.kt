@@ -1,5 +1,7 @@
 package de.minitraxx.whisperflow.service
 
+import android.animation.TimeInterpolator
+import android.animation.ValueAnimator
 import android.app.*
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -7,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaRecorder
 import android.os.Build
@@ -14,6 +17,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.view.*
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
@@ -44,6 +49,11 @@ class FloatingButtonService : Service() {
     private var isDragging = false
     private var recordingStartTime = 0L
 
+    // Edge-Tab state
+    private var isEdgeCollapsed = false
+    private var collapsedOnLeft = false
+    private var buttonSize = 0
+
     private var mediaRecorder: MediaRecorder? = null
     private var lastRecordingFile: File? = null
     private var capturedPackage = ""
@@ -57,7 +67,7 @@ class FloatingButtonService : Service() {
 
     private val longPressHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable {
-        if (!isDragging && !isRecording) {
+        if (!isDragging && !isRecording && !isEdgeCollapsed) {
             isWalkieTalkieMode = true
             startRecording()
         }
@@ -114,12 +124,24 @@ class FloatingButtonService : Service() {
         super.onDestroy()
     }
 
+    // ── Screen helpers ─────────────────────────────────────────────────────────
+
+    @Suppress("DEPRECATION")
+    private fun getScreenWidth(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            windowManager.currentWindowMetrics.bounds.width()
+        else {
+            val p = Point(); windowManager.defaultDisplay.getSize(p); p.x
+        }
+
+    // ── Floating button setup ──────────────────────────────────────────────────
+
     private fun showFloatingButton() {
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
         runCatching { statusView?.let { windowManager.removeView(it) }; statusView = null }
 
         val dp = resources.displayMetrics.density
-        val size = (62 * dp).toInt()
+        buttonSize = (62 * dp).toInt()
         val pad = (13 * dp).toInt()
 
         buttonView = ImageView(this).apply {
@@ -131,7 +153,7 @@ class FloatingButtonService : Service() {
         applyIdleStyle()
 
         params = WindowManager.LayoutParams(
-            size, size,
+            buttonSize, buttonSize,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -175,6 +197,17 @@ class FloatingButtonService : Service() {
         windowManager.addView(tv, sp)
     }
 
+    private fun updateStatusPosition() {
+        val dp = resources.displayMetrics.density
+        statusParams?.let { sp ->
+            sp.x = params.x + (70 * dp).toInt()
+            sp.y = params.y + (16 * dp).toInt()
+            statusView?.let { runCatching { windowManager.updateViewLayout(it, sp) } }
+        }
+    }
+
+    // ── Status overlay ─────────────────────────────────────────────────────────
+
     private fun showStatus(text: String, color: Int = Color.WHITE) {
         Handler(Looper.getMainLooper()).post {
             statusView?.apply {
@@ -191,6 +224,8 @@ class FloatingButtonService : Service() {
         }, delayMs)
     }
 
+    // ── Timer ──────────────────────────────────────────────────────────────────
+
     private val timerRunnable = object : Runnable {
         override fun run() {
             if (!isRecording) return
@@ -203,7 +238,10 @@ class FloatingButtonService : Service() {
         }
     }
 
+    // ── Visual styles ──────────────────────────────────────────────────────────
+
     private fun applyIdleStyle() {
+        buttonView.alpha = 1f
         val stroke = (1.5f * resources.displayMetrics.density).toInt()
         buttonView.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -213,6 +251,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun applyRecordingStyle() {
+        buttonView.alpha = 1f
         val stroke = (1.5f * resources.displayMetrics.density).toInt()
         buttonView.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -220,6 +259,58 @@ class FloatingButtonService : Service() {
             setStroke(stroke, Color.parseColor("#FF2040"))
         }
     }
+
+    private fun applyEdgeTabStyle() {
+        buttonView.alpha = 0.80f
+        val stroke = (1.5f * resources.displayMetrics.density).toInt()
+        buttonView.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor("#1A1A2E"))
+            setStroke(stroke, Color.parseColor("#3A3A6E"))
+        }
+    }
+
+    // ── Edge-Tab logic ─────────────────────────────────────────────────────────
+
+    private fun isNearEdge(): Boolean {
+        val sw = getScreenWidth()
+        val thresh = (52 * resources.displayMetrics.density).toInt()
+        return params.x < thresh || params.x + buttonSize > sw - thresh
+    }
+
+    private fun collapseToEdge() {
+        val sw = getScreenWidth()
+        collapsedOnLeft = params.x < sw / 2
+        isEdgeCollapsed = true
+        val target = if (collapsedOnLeft) -(buttonSize / 2) else sw - buttonSize / 2
+        animateButtonX(params.x, target, 280, DecelerateInterpolator())
+        applyEdgeTabStyle()
+        hideStatus()
+    }
+
+    private fun expandFromEdge() {
+        isEdgeCollapsed = false
+        val sw = getScreenWidth()
+        val pad = (24 * resources.displayMetrics.density).toInt()
+        val target = if (collapsedOnLeft) pad else sw - buttonSize - pad
+        animateButtonX(params.x, target, 240, OvershootInterpolator(1.3f))
+        applyIdleStyle()
+    }
+
+    private fun animateButtonX(from: Int, to: Int, durationMs: Long, interp: TimeInterpolator) {
+        ValueAnimator.ofInt(from, to).apply {
+            duration = durationMs
+            interpolator = interp
+            addUpdateListener {
+                params.x = it.animatedValue as Int
+                runCatching { windowManager.updateViewLayout(buttonView, params) }
+                updateStatusPosition()
+            }
+            start()
+        }
+    }
+
+    // ── Touch listener ─────────────────────────────────────────────────────────
 
     private val touchListener = View.OnTouchListener { _, event ->
         when (event.action) {
@@ -230,7 +321,9 @@ class FloatingButtonService : Service() {
                 initialTouchY = event.rawY
                 touchDownTime = System.currentTimeMillis()
                 isDragging = false
-                longPressHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
+                if (!isEdgeCollapsed) {
+                    longPressHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
+                }
                 true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -240,10 +333,16 @@ class FloatingButtonService : Service() {
                     if (!isDragging) {
                         isDragging = true
                         longPressHandler.removeCallbacks(longPressRunnable)
+                        // Dragging from collapsed = pop back to full immediately
+                        if (isEdgeCollapsed) {
+                            isEdgeCollapsed = false
+                            applyIdleStyle()
+                        }
                     }
                     params.x = (initialX + dx).coerceAtLeast(0)
                     params.y = (initialY + dy).coerceAtLeast(0)
-                    windowManager.updateViewLayout(buttonView, params)
+                    runCatching { windowManager.updateViewLayout(buttonView, params) }
+                    updateStatusPosition()
                 }
                 true
             }
@@ -251,6 +350,10 @@ class FloatingButtonService : Service() {
                 longPressHandler.removeCallbacks(longPressRunnable)
                 val elapsed = System.currentTimeMillis() - touchDownTime
                 when {
+                    // Tap on collapsed tab → expand
+                    isEdgeCollapsed && !isDragging -> expandFromEdge()
+                    // Drag to screen edge → collapse (only if not recording)
+                    isDragging && !isRecording && isNearEdge() -> collapseToEdge()
                     isDragging -> {}
                     isWalkieTalkieMode -> {
                         isWalkieTalkieMode = false
@@ -264,11 +367,14 @@ class FloatingButtonService : Service() {
         }
     }
 
+    // ── Recording ─────────────────────────────────────────────────────────────
+
     private fun toggleRecording() {
         if (isRecording) stopRecording(transcribe = true) else startRecording()
     }
 
     private fun startRecording() {
+        if (isEdgeCollapsed) expandFromEdge()
         if (CostTracker.isExceeded(this)) {
             Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
             return
@@ -312,7 +418,6 @@ class FloatingButtonService : Service() {
 
         val file = lastRecordingFile ?: return
         lastRecordingFile = null
-
         timerHandler.removeCallbacks(timerRunnable)
 
         if (!transcribe || durationMs < 300) {
@@ -325,6 +430,8 @@ class FloatingButtonService : Service() {
         CostTracker.recordAudio(durationMs / 1000L, this)
         serviceScope.launch { processAudio(file) }
     }
+
+    // ── Audio processing ──────────────────────────────────────────────────────
 
     private suspend fun processAudio(file: File) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -347,7 +454,6 @@ class FloatingButtonService : Service() {
         }
         file.delete()
 
-        // M7: aktive App erkennen → Profil automatisch wählen (Package beim Aufnahmestart eingefroren)
         val activePackage = capturedPackage
         val effectiveProfile = when {
             activePackage.contains("whatsapp") -> PROFILE_WHATSAPP
@@ -393,6 +499,8 @@ class FloatingButtonService : Service() {
             }
         }
     }
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
 
     private suspend fun showToast(text: String) = withContext(Dispatchers.Main) {
         Toast.makeText(this@FloatingButtonService, text, Toast.LENGTH_LONG).show()

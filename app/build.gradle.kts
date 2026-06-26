@@ -16,7 +16,19 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        create("persistent") {
+            storeFile = file("keystore/debug.jks")
+            storePassword = "whisperflow"
+            keyAlias = "whisperflow"
+            keyPassword = "whisperflow"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("persistent")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
