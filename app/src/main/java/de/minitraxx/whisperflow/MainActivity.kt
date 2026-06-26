@@ -1,12 +1,15 @@
 package de.minitraxx.whisperflow
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +28,10 @@ class MainActivity : ComponentActivity() {
 
     private var refreshTrigger by mutableStateOf(0)
 
+    private val requestMicPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { refreshTrigger++ }
+
     override fun onResume() {
         super.onResume()
         refreshTrigger++
@@ -36,16 +43,25 @@ class MainActivity : ComponentActivity() {
         setContent {
             val refresh = refreshTrigger
             WhisperFlowTheme {
+                val overlayGranted = remember(refresh) { Settings.canDrawOverlays(this) }
+                val micGranted = remember(refresh) {
+                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                }
+                val serviceRunning = remember(refresh) { FloatingButtonService.isRunning }
                 MainScreen(
-                    overlayGranted = remember(refresh) { Settings.canDrawOverlays(this) },
-                    serviceRunning = remember(refresh) { FloatingButtonService.isRunning },
-                    onRequestPermission = {
+                    overlayGranted = overlayGranted,
+                    micGranted = micGranted,
+                    serviceRunning = serviceRunning,
+                    onRequestOverlay = {
                         startActivity(
                             Intent(
                                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                                 Uri.parse("package:$packageName")
                             )
                         )
+                    },
+                    onRequestMic = {
+                        requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
                     },
                     onStartService = { FloatingButtonService.start(this) },
                     onStopService = { FloatingButtonService.stop(this) }
@@ -58,8 +74,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     overlayGranted: Boolean,
+    micGranted: Boolean,
     serviceRunning: Boolean,
-    onRequestPermission: () -> Unit,
+    onRequestOverlay: () -> Unit,
+    onRequestMic: () -> Unit,
     onStartService: () -> Unit,
     onStopService: () -> Unit
 ) {
@@ -88,18 +106,30 @@ fun MainScreen(
             done = overlayGranted,
             actionLabel = "Berechtigung erteilen",
             showAction = !overlayGranted,
-            onAction = onRequestPermission
+            onAction = onRequestOverlay
         )
 
         Spacer(Modifier.height(12.dp))
 
         SetupStep(
             number = "2",
+            title = "Mikrofon-Berechtigung",
+            description = "Benötigt damit du später diktieren kannst.",
+            done = micGranted,
+            actionLabel = "Erlauben",
+            showAction = overlayGranted && !micGranted,
+            onAction = onRequestMic
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        SetupStep(
+            number = "3",
             title = "Floating Button",
             description = "Der schwebende Mikrofon-Button erscheint über allen Apps — verschiebbar, immer griffbereit.",
             done = serviceRunning,
             actionLabel = if (serviceRunning) "Button stoppen" else "Button starten",
-            showAction = overlayGranted,
+            showAction = overlayGranted && micGranted,
             actionDestructive = serviceRunning,
             onAction = if (serviceRunning) onStopService else onStartService
         )
