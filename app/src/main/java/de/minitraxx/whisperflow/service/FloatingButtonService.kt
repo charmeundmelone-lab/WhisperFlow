@@ -246,8 +246,8 @@ class FloatingButtonService : Service() {
 
     private suspend fun processAudio(file: File) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val openAiKey = prefs.getString(KEY_OPENAI_API_KEY, "") ?: ""
-        val anthropicKey = prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: ""
+        val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
+        val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
 
         if (openAiKey.isBlank()) {
             showToast("Kein OpenAI API-Key — bitte in der WhisperFlow-App eintragen")

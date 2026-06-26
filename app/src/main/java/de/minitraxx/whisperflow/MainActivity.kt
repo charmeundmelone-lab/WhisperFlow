@@ -112,12 +112,12 @@ class MainActivity : ComponentActivity() {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     },
                     onOpenAiKeyChange = { key ->
-                        openAiKey = key
-                        prefs.edit().putString(FloatingButtonService.KEY_OPENAI_API_KEY, key).apply()
+                        openAiKey = key.trim()
+                        prefs.edit().putString(FloatingButtonService.KEY_OPENAI_API_KEY, key.trim()).apply()
                     },
                     onAnthropicKeyChange = { key ->
-                        anthropicKey = key
-                        prefs.edit().putString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, key).apply()
+                        anthropicKey = key.trim()
+                        prefs.edit().putString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, key.trim()).apply()
                     },
                     onResetBudget = {
                         CostTracker.reset(this)
