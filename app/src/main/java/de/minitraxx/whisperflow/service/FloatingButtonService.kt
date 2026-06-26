@@ -1,6 +1,5 @@
 package de.minitraxx.whisperflow.service
 
-import android.animation.TimeInterpolator
 import android.animation.ValueAnimator
 import android.app.*
 import android.content.ClipData
@@ -261,7 +260,6 @@ class FloatingButtonService : Service() {
     }
 
     private fun applyEdgeTabStyle() {
-        buttonView.alpha = 0.80f
         val stroke = (1.5f * resources.displayMetrics.density).toInt()
         buttonView.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -274,33 +272,72 @@ class FloatingButtonService : Service() {
 
     private fun isNearEdge(): Boolean {
         val sw = getScreenWidth()
-        val thresh = (52 * resources.displayMetrics.density).toInt()
-        return params.x < thresh || params.x + buttonSize > sw - thresh
+        val edgeZone = sw / 4  // outer 25% of screen on each side
+        return params.x < edgeZone || params.x + buttonSize > sw - edgeZone
     }
 
     private fun collapseToEdge() {
         val sw = getScreenWidth()
-        collapsedOnLeft = params.x < sw / 2
+        collapsedOnLeft = params.x + buttonSize / 2 < sw / 2
         isEdgeCollapsed = true
-        val target = if (collapsedOnLeft) -(buttonSize / 2) else sw - buttonSize / 2
-        animateButtonX(params.x, target, 280, DecelerateInterpolator())
+
+        val targetX = if (collapsedOnLeft) 0 else sw - buttonSize
+        buttonView.pivotX = if (collapsedOnLeft) 0f else buttonSize.toFloat()
+        buttonView.pivotY = buttonSize / 2f
+
         applyEdgeTabStyle()
         hideStatus()
+
+        // Slide to screen edge
+        ValueAnimator.ofInt(params.x, targetX).apply {
+            duration = 260
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                params.x = it.animatedValue as Int
+                runCatching { windowManager.updateViewLayout(buttonView, params) }
+                updateStatusPosition()
+            }
+            start()
+        }
+
+        // Simultaneously squish to half width — creates the half-circle tab look
+        buttonView.animate()
+            .scaleX(0.5f)
+            .alpha(0.75f)
+            .setDuration(260)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
     }
 
     private fun expandFromEdge() {
         isEdgeCollapsed = false
+        val pad = (20 * resources.displayMetrics.density).toInt()
         val sw = getScreenWidth()
-        val pad = (24 * resources.displayMetrics.density).toInt()
-        val target = if (collapsedOnLeft) pad else sw - buttonSize - pad
-        animateButtonX(params.x, target, 240, OvershootInterpolator(1.3f))
-        applyIdleStyle()
-    }
+        val targetX = if (collapsedOnLeft) pad else sw - buttonSize - pad
 
-    private fun animateButtonX(from: Int, to: Int, durationMs: Long, interp: TimeInterpolator) {
-        ValueAnimator.ofInt(from, to).apply {
-            duration = durationMs
-            interpolator = interp
+        // Restore idle background
+        val stroke = (1.5f * resources.displayMetrics.density).toInt()
+        buttonView.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor("#1C1C1E"))
+            setStroke(stroke, Color.parseColor("#3A3A3C"))
+        }
+
+        buttonView.pivotX = if (collapsedOnLeft) 0f else buttonSize.toFloat()
+        buttonView.pivotY = buttonSize / 2f
+
+        // Spring back to full size
+        buttonView.animate()
+            .scaleX(1f)
+            .alpha(1f)
+            .setDuration(240)
+            .setInterpolator(OvershootInterpolator(1.3f))
+            .start()
+
+        // Slide slightly away from edge
+        ValueAnimator.ofInt(params.x, targetX).apply {
+            duration = 240
+            interpolator = OvershootInterpolator(1.3f)
             addUpdateListener {
                 params.x = it.animatedValue as Int
                 runCatching { windowManager.updateViewLayout(buttonView, params) }
