@@ -7,8 +7,8 @@ object CostTracker {
     private const val KEY_SPENT = "total_spent_eur"
     private const val KEY_BUDGET = "budget_eur"
 
-    // Groq Whisper Large v3 Turbo: $0.04/hour = $0.000667/min = $0.0000111/sec
-    private const val WHISPER_EUR_PER_SECOND = 0.04 / 3600.0
+    // OpenAI Whisper-1: $0.006/min = $0.0001/sec
+    private const val WHISPER_EUR_PER_SECOND = 0.006 / 60.0
 
     // Claude Haiku 4.5: ~200 in + 100 out tokens per correction ~€0.0005
     private const val CLAUDE_EUR_PER_CALL = 0.0005

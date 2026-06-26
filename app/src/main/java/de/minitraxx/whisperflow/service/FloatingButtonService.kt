@@ -61,7 +61,7 @@ class FloatingButtonService : Service() {
         private const val LONG_PRESS_MS = 500L
 
         const val PREFS_NAME = "whisperflow_prefs"
-        const val KEY_GROQ_API_KEY = "groq_api_key"
+        const val KEY_OPENAI_API_KEY = "openai_api_key"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, FloatingButtonService::class.java))
@@ -241,7 +241,7 @@ class FloatingButtonService : Service() {
 
     private suspend fun transcribeAudio(file: File) {
         val apiKey = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_GROQ_API_KEY, "") ?: ""
+            .getString(KEY_OPENAI_API_KEY, "") ?: ""
 
         if (apiKey.isBlank()) {
             showToast("Kein API-Key — bitte in der WhisperFlow-App eintragen")

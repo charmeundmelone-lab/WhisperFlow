@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
                 val serviceRunning = remember(refresh) { FloatingButtonService.isRunning }
 
                 val prefs = remember { getSharedPreferences(FloatingButtonService.PREFS_NAME, Context.MODE_PRIVATE) }
-                var groqApiKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_GROQ_API_KEY, "") ?: "") }
+                var openAiApiKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_OPENAI_API_KEY, "") ?: "") }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val budget = remember(refresh) { CostTracker.getBudget(this) }
@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
                     overlayGranted = overlayGranted,
                     micGranted = micGranted,
                     serviceRunning = serviceRunning,
-                    groqApiKey = groqApiKey,
+                    openAiApiKey = openAiApiKey,
                     spent = spent,
                     budget = budget,
                     onRequestOverlay = {
@@ -96,8 +96,8 @@ class MainActivity : ComponentActivity() {
                         refreshTrigger++
                     },
                     onApiKeyChange = { key ->
-                        groqApiKey = key
-                        prefs.edit().putString(FloatingButtonService.KEY_GROQ_API_KEY, key).apply()
+                        openAiApiKey = key
+                        prefs.edit().putString(FloatingButtonService.KEY_OPENAI_API_KEY, key).apply()
                     },
                     onResetBudget = {
                         CostTracker.reset(this)
@@ -114,7 +114,7 @@ fun MainScreen(
     overlayGranted: Boolean,
     micGranted: Boolean,
     serviceRunning: Boolean,
-    groqApiKey: String,
+    openAiApiKey: String,
     spent: Double,
     budget: Double,
     onRequestOverlay: () -> Unit,
@@ -178,7 +178,7 @@ fun MainScreen(
                 exceeded = budgetExceeded, onReset = onResetBudget
             )
             Spacer(Modifier.height(12.dp))
-            ApiKeyCard(apiKey = groqApiKey, onApiKeyChange = onApiKeyChange)
+            ApiKeyCard(apiKey = openAiApiKey, onApiKeyChange = onApiKeyChange)
         }
 
         Spacer(Modifier.height(32.dp))
@@ -249,7 +249,7 @@ fun BudgetCard(
             if (exceeded) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Guthaben aufgebraucht. Konto auf groq.com aufladen, dann Reset tippen.",
+                    "Guthaben aufgebraucht. Konto auf platform.openai.com aufladen, dann Reset tippen.",
                     color = Color(0xFFFF453A),
                     fontSize = 13.sp,
                     lineHeight = 18.sp
@@ -270,13 +270,13 @@ fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                "Groq API-Key",
+                "OpenAI API-Key",
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 16.sp
             )
             Text(
-                "Kostenlos auf groq.com  ·  ~9× günstiger als OpenAI",
+                "platform.openai.com → API keys → Create new key",
                 color = Color(0xFF8E8E93),
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
@@ -285,7 +285,7 @@ fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
                 value = apiKey,
                 onValueChange = onApiKeyChange,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("gsk_...", color = Color(0xFF48484A)) },
+                placeholder = { Text("sk-...", color = Color(0xFF48484A)) },
                 visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
                     TextButton(onClick = { showKey = !showKey }) {
@@ -307,7 +307,7 @@ fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
                 singleLine = true,
                 shape = RoundedCornerShape(10.dp)
             )
-            if (apiKey.startsWith("gsk_") && apiKey.length > 10) {
+            if (apiKey.startsWith("sk-") && apiKey.length > 10) {
                 Spacer(Modifier.height(6.dp))
                 Text("Key erkannt — bereit zum Diktieren", color = Color(0xFF30D158), fontSize = 12.sp)
             }
