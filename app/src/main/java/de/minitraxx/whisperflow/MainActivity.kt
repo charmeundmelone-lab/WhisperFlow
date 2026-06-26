@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.minitraxx.whisperflow.service.FloatingButtonService
+import de.minitraxx.whisperflow.service.WhisperAccessibilityService
 import de.minitraxx.whisperflow.ui.theme.WhisperFlowTheme
 import de.minitraxx.whisperflow.util.CostTracker
 
@@ -56,6 +57,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val name = "${packageName}/${WhisperAccessibilityService::class.java.canonicalName}"
+        val enabled = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabled.contains(name)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -67,9 +76,11 @@ class MainActivity : ComponentActivity() {
                     checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                 }
                 val serviceRunning = remember(refresh) { FloatingButtonService.isRunning }
+                val accessibilityEnabled = remember(refresh) { isAccessibilityServiceEnabled() }
 
                 val prefs = remember { getSharedPreferences(FloatingButtonService.PREFS_NAME, Context.MODE_PRIVATE) }
-                var openAiApiKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_OPENAI_API_KEY, "") ?: "") }
+                var openAiKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_OPENAI_API_KEY, "") ?: "") }
+                var anthropicKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, "") ?: "") }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val budget = remember(refresh) { CostTracker.getBudget(this) }
@@ -78,7 +89,9 @@ class MainActivity : ComponentActivity() {
                     overlayGranted = overlayGranted,
                     micGranted = micGranted,
                     serviceRunning = serviceRunning,
-                    openAiApiKey = openAiApiKey,
+                    accessibilityEnabled = accessibilityEnabled,
+                    openAiKey = openAiKey,
+                    anthropicKey = anthropicKey,
                     spent = spent,
                     budget = budget,
                     onRequestOverlay = {
@@ -95,9 +108,16 @@ class MainActivity : ComponentActivity() {
                         FloatingButtonService.stop(this)
                         refreshTrigger++
                     },
-                    onApiKeyChange = { key ->
-                        openAiApiKey = key
+                    onRequestAccessibility = {
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    },
+                    onOpenAiKeyChange = { key ->
+                        openAiKey = key
                         prefs.edit().putString(FloatingButtonService.KEY_OPENAI_API_KEY, key).apply()
+                    },
+                    onAnthropicKeyChange = { key ->
+                        anthropicKey = key
+                        prefs.edit().putString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, key).apply()
                     },
                     onResetBudget = {
                         CostTracker.reset(this)
@@ -114,14 +134,18 @@ fun MainScreen(
     overlayGranted: Boolean,
     micGranted: Boolean,
     serviceRunning: Boolean,
-    openAiApiKey: String,
+    accessibilityEnabled: Boolean,
+    openAiKey: String,
+    anthropicKey: String,
     spent: Double,
     budget: Double,
     onRequestOverlay: () -> Unit,
     onRequestMic: () -> Unit,
     onStartService: () -> Unit,
     onStopService: () -> Unit,
-    onApiKeyChange: (String) -> Unit,
+    onRequestAccessibility: () -> Unit,
+    onOpenAiKeyChange: (String) -> Unit,
+    onAnthropicKeyChange: (String) -> Unit,
     onResetBudget: () -> Unit
 ) {
     val allSetUp = overlayGranted && micGranted
@@ -170,6 +194,15 @@ fun MainScreen(
             actionDestructive = serviceRunning,
             onAction = if (serviceRunning) onStopService else onStartService
         )
+        Spacer(Modifier.height(12.dp))
+        SetupStep(
+            number = "4", title = "Texteingabe aktivieren",
+            description = "WhisperFlow darf direkt in andere Apps schreiben. Einmalig aktivieren — dann läuft es für immer.",
+            done = accessibilityEnabled,
+            actionLabel = "Aktivieren",
+            showAction = allSetUp && !accessibilityEnabled,
+            onAction = onRequestAccessibility
+        )
 
         if (allSetUp) {
             Spacer(Modifier.height(24.dp))
@@ -178,12 +211,28 @@ fun MainScreen(
                 exceeded = budgetExceeded, onReset = onResetBudget
             )
             Spacer(Modifier.height(12.dp))
-            ApiKeyCard(apiKey = openAiApiKey, onApiKeyChange = onApiKeyChange)
+            ApiKeyCard(
+                label = "OpenAI API-Key",
+                hint = "platform.openai.com → API keys",
+                placeholder = "sk-...",
+                apiKey = openAiKey,
+                isValid = openAiKey.startsWith("sk-") && openAiKey.length > 10,
+                onApiKeyChange = onOpenAiKeyChange
+            )
+            Spacer(Modifier.height(12.dp))
+            ApiKeyCard(
+                label = "Anthropic API-Key",
+                hint = "console.anthropic.com → API keys",
+                placeholder = "sk-ant-...",
+                apiKey = anthropicKey,
+                isValid = anthropicKey.startsWith("sk-ant-") && anthropicKey.length > 10,
+                onApiKeyChange = onAnthropicKeyChange
+            )
         }
 
         Spacer(Modifier.height(32.dp))
         Text(
-            "Milestone 3 von 8  ·  Whisper Transkription",
+            "Milestone 4+5 von 8  ·  Claude Korrektur + Texteingabe",
             fontSize = 12.sp,
             color = Color(0xFF3A3A3C),
             modifier = Modifier.padding(bottom = 24.dp)
@@ -223,9 +272,7 @@ fun BudgetCard(
             Spacer(Modifier.height(10.dp))
             LinearProgressIndicator(
                 progress = { (spent / budget).toFloat().coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp),
+                modifier = Modifier.fillMaxWidth().height(4.dp),
                 color = if (exceeded) Color(0xFFFF453A) else Color(0xFF0A84FF),
                 trackColor = Color(0xFF2C2C2E)
             )
@@ -260,7 +307,14 @@ fun BudgetCard(
 }
 
 @Composable
-fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
+fun ApiKeyCard(
+    label: String,
+    hint: String,
+    placeholder: String,
+    apiKey: String,
+    isValid: Boolean,
+    onApiKeyChange: (String) -> Unit
+) {
     var showKey by remember { mutableStateOf(false) }
 
     Card(
@@ -269,14 +323,9 @@ fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            Text(label, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Text(
-                "OpenAI API-Key",
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp
-            )
-            Text(
-                "platform.openai.com → API keys → Create new key",
+                hint,
                 color = Color(0xFF8E8E93),
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
@@ -285,7 +334,7 @@ fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
                 value = apiKey,
                 onValueChange = onApiKeyChange,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("sk-...", color = Color(0xFF48484A)) },
+                placeholder = { Text(placeholder, color = Color(0xFF48484A)) },
                 visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
                     TextButton(onClick = { showKey = !showKey }) {
@@ -307,9 +356,9 @@ fun ApiKeyCard(apiKey: String, onApiKeyChange: (String) -> Unit) {
                 singleLine = true,
                 shape = RoundedCornerShape(10.dp)
             )
-            if (apiKey.startsWith("sk-") && apiKey.length > 10) {
+            if (isValid) {
                 Spacer(Modifier.height(6.dp))
-                Text("Key erkannt — bereit zum Diktieren", color = Color(0xFF30D158), fontSize = 12.sp)
+                Text("Key erkannt — aktiv", color = Color(0xFF30D158), fontSize = 12.sp)
             }
         }
     }

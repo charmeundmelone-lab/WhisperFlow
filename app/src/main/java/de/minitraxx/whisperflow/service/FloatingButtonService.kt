@@ -1,6 +1,8 @@
 package de.minitraxx.whisperflow.service
 
 import android.app.*
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -17,6 +19,8 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import de.minitraxx.whisperflow.MainActivity
 import de.minitraxx.whisperflow.R
+import de.minitraxx.whisperflow.api.ClaudeClient
+import de.minitraxx.whisperflow.api.StylePrompts
 import de.minitraxx.whisperflow.api.WhisperClient
 import de.minitraxx.whisperflow.util.CostTracker
 import kotlinx.coroutines.*
@@ -62,6 +66,7 @@ class FloatingButtonService : Service() {
 
         const val PREFS_NAME = "whisperflow_prefs"
         const val KEY_OPENAI_API_KEY = "openai_api_key"
+        const val KEY_ANTHROPIC_API_KEY = "anthropic_api_key"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, FloatingButtonService::class.java))
@@ -171,7 +176,7 @@ class FloatingButtonService : Service() {
                 longPressHandler.removeCallbacks(longPressRunnable)
                 val elapsed = System.currentTimeMillis() - touchDownTime
                 when {
-                    isDragging -> { /* nur verschieben */ }
+                    isDragging -> {}
                     isWalkieTalkieMode -> {
                         isWalkieTalkieMode = false
                         stopRecording(transcribe = true)
@@ -236,24 +241,47 @@ class FloatingButtonService : Service() {
         }
 
         CostTracker.recordAudio(durationMs / 1000L, this)
-        serviceScope.launch { transcribeAudio(file) }
+        serviceScope.launch { processAudio(file) }
     }
 
-    private suspend fun transcribeAudio(file: File) {
-        val apiKey = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_OPENAI_API_KEY, "") ?: ""
+    private suspend fun processAudio(file: File) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val openAiKey = prefs.getString(KEY_OPENAI_API_KEY, "") ?: ""
+        val anthropicKey = prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: ""
 
-        if (apiKey.isBlank()) {
-            showToast("Kein API-Key — bitte in der WhisperFlow-App eintragen")
+        if (openAiKey.isBlank()) {
+            showToast("Kein OpenAI API-Key — bitte in der WhisperFlow-App eintragen")
             file.delete()
             return
         }
 
-        WhisperClient.transcribe(file, apiKey)
-            .onSuccess { text -> showToast(text) }
-            .onFailure { showToast("Fehler: ${it.message?.take(80)}") }
-
+        // Schritt 1: Whisper transkribiert
+        val transcription = WhisperClient.transcribe(file, openAiKey).getOrElse {
+            showToast("Whisper-Fehler: ${it.message?.take(60)}")
+            file.delete()
+            return
+        }
         file.delete()
+
+        // Schritt 2: Claude korrigiert (optional)
+        val finalText = if (anthropicKey.isNotBlank()) {
+            CostTracker.recordClaude(this)
+            ClaudeClient.correct(transcription, StylePrompts.WHATSAPP, anthropicKey)
+                .getOrDefault(transcription)
+        } else {
+            transcription
+        }
+
+        // Schritt 3: Text injizieren
+        withContext(Dispatchers.Main) {
+            if (WhisperAccessibilityService.isRunning) {
+                WhisperAccessibilityService.inject(finalText)
+            } else {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", finalText))
+                Toast.makeText(this@FloatingButtonService, finalText, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private suspend fun showToast(text: String) = withContext(Dispatchers.Main) {
