@@ -41,10 +41,16 @@ class WhisperAccessibilityService : AccessibilityService() {
                 node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                 handler.postDelayed({
                     node.refresh()
+                    // Read existing field content and append. WhatsApp and many apps only
+                    // accept ACTION_SET_TEXT if the new text extends what's already there.
+                    // The dictation prefix bugs are fixed upstream (Claude <diktat> tags +
+                    // stripDictationPrefix), so existing content should be clean.
+                    val existing = node.text?.toString()?.trimEnd() ?: ""
+                    val combined = if (existing.isEmpty()) text else "$existing $text"
                     val bundle = android.os.Bundle().apply {
                         putCharSequence(
                             AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                            text
+                            combined
                         )
                     }
                     val ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
