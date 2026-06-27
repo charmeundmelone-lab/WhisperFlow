@@ -41,14 +41,10 @@ class WhisperAccessibilityService : AccessibilityService() {
                 node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                 handler.postDelayed({
                     node.refresh()
-                    // ACTION_SET_TEXT works in Gmail and many apps where ACTION_PASTE fails.
-                    // Append to any existing text so we don't wipe the field.
-                    val existing = node.text?.toString() ?: ""
-                    val combined = if (existing.isEmpty()) text else "$existing $text"
                     val bundle = android.os.Bundle().apply {
                         putCharSequence(
                             AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                            combined
+                            text
                         )
                     }
                     val ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)

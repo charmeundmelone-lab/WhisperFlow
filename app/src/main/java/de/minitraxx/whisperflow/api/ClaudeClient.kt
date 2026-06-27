@@ -33,7 +33,7 @@ object ClaudeClient {
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "user")
-                        put("content", rawText)
+                        put("content", "<diktat>\n$rawText\n</diktat>")
                     })
                 })
             }.toString().toRequestBody("application/json".toMediaType())
