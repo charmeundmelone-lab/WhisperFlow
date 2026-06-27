@@ -390,7 +390,7 @@ class FloatingButtonService : Service() {
                 true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (isEdgeCollapsed) return@setOnTouchListener true
+                if (isEdgeCollapsed) return@OnTouchListener true
                 val dx = (event.rawX - initialTouchX).toInt()
                 val dy = (event.rawY - initialTouchY).toInt()
                 if (abs(dx) > 8 || abs(dy) > 8) {
