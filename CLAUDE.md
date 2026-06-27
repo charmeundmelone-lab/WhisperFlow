@@ -50,6 +50,7 @@ Zielgruppe: 1–2 Personen (Privatnutzung), primär auf Deutsch.
 - Datei: `app/keystore/debug.jks`
 - Passwort / Alias: `whisperflow`
 - Bewusst ins Repo committed (Privatnutzung, kein Sicherheitsproblem)
+- **Status: bestätigt funktionierend** — APK-Update-in-place getestet ✓
 - **Zweck:** Alle CI-Builds tragen die gleiche Signatur → APK-Updates installieren direkt
   über die Vorgängerversion, ohne zu deinstallieren → API-Keys bleiben in SharedPreferences erhalten
 - Konfiguriert in `app/build.gradle.kts` unter `signingConfigs { create("persistent") { ... } }`
@@ -93,7 +94,7 @@ app/keystore/debug.jks                 # Persistente APK-Signatur
 | **Drei Stil-Profile** | WhatsApp (locker), Professionell (Business), Formal (Behörden/Briefe) |
 | **Auto-App-Erkennung** | `capturedPackage` wird bei Aufnahme-START gespeichert (nicht bei Verarbeitung) → korrekte Profilerkennung auch wenn App gewechselt wird. WhatsApp → WhatsApp-Profil; Gmail/Outlook/etc. → Professionell; sonst → User-gewähltes Profil |
 | **Text-Injection** | `ACTION_SET_TEXT` (primär, hängt Text an vorhandenen an); Fallback: Clipboard + `ACTION_PASTE` |
-| **Persistente API-Keys** | `SharedPreferences`, Keys werden beim Speichern und Lesen mit `.trim()` bereinigt |
+| **Eingebettete API-Keys** | Zur Build-Zeit via `BuildConfig` (GitHub Secrets `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`); SharedPreferences als Fallback für lokale Builds |
 | **Budget-Tracking** | Geschätzte Kosten (Whisper: $0.006/min, Claude: Pauschale), konfigurierbares Limit, Reset-Button |
 | **Budget-Guard** | Aufnahme wird blockiert wenn Limit überschritten |
 | **Automatischer Service-Start** | Startet sich selbst bei `onResume()` wenn Overlay + Mikrofon erlaubt sind |
@@ -115,17 +116,7 @@ Wurde versucht (Build #16) → Compile-Fehler. Diese Konstante gibt es in der An
 
 ## Offene Todos (priorisiert)
 
-### 1. Hardcoded "Milestone 6 von 8" Text entfernen
-**Datei:** `MainActivity.kt`, Zeile 256
-```kotlin
-Text(
-    "Milestone 6 von 8  ·  Status-Overlay + Stil-Profile + Budget-Limit",
-    ...
-)
-```
-Dieser Text ist veraltet und irreführend. Einfach die komplette `Text(...)`-Zeile + `Spacer(Modifier.height(32.dp))` darüber entfernen.
-
-### 2. EncryptedSharedPreferences für API-Keys
+### 1. EncryptedSharedPreferences für API-Keys
 Aktuell: plain `SharedPreferences`. Sicherer wäre Jetpack Security (`EncryptedSharedPreferences`).
 Für Privatnutzung auf einem nicht-gerooteten Gerät akzeptabel, aber technische Schuld.
 Dependency: `androidx.security:security-crypto:1.1.0-alpha06`
@@ -188,7 +179,10 @@ Push auf main
         app-debug-<sha>.apk    ← versioniert
 ```
 
-APK direkt von `apk-dist` herunterladen und per USB/ADB/Link installieren.
+APK-Download für Familienmitglieder (permanenter Link, immer neueste Version):
+```
+https://github.com/charmeundmelone-lab/WhisperFlow/releases/latest/download/app-debug.apk
+```
 Installiert direkt über Vorgänger-APK ohne Deinstallation (gleiche Keystore-Signatur).
 
 ---
@@ -200,8 +194,8 @@ Alle in `FloatingButtonService.companion object`:
 | Konstante | Key | Inhalt |
 |-----------|-----|--------|
 | `PREFS_NAME` | `whisperflow_prefs` | SharedPreferences-Dateiname |
-| `KEY_OPENAI_API_KEY` | `openai_api_key` | OpenAI API Key (`sk-...`) |
-| `KEY_ANTHROPIC_API_KEY` | `anthropic_api_key` | Anthropic API Key (`sk-ant-...`) |
+| `KEY_OPENAI_API_KEY` | `openai_api_key` | OpenAI API Key (Fallback falls BuildConfig leer) |
+| `KEY_ANTHROPIC_API_KEY` | `anthropic_api_key` | Anthropic API Key (Fallback falls BuildConfig leer) |
 | `KEY_STYLE_PROFILE` | `style_profile` | `whatsapp` / `professional` / `formal` |
 
 ---
