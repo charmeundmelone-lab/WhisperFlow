@@ -19,6 +19,7 @@ import android.view.*
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -37,7 +38,9 @@ import kotlin.math.abs
 class FloatingButtonService : Service() {
 
     private lateinit var windowManager: WindowManager
-    private lateinit var buttonView: ImageView
+    private lateinit var buttonView: FrameLayout
+    private lateinit var micIconView: ImageView
+    private var recLabelView: TextView? = null
     private lateinit var params: WindowManager.LayoutParams
 
     private var isRecording = false
@@ -158,11 +161,16 @@ class FloatingButtonService : Service() {
         buttonSize = (62 * dp).toInt()
         val pad = (13 * dp).toInt()
 
-        buttonView = ImageView(this).apply {
+        micIconView = ImageView(this).apply {
             setImageResource(R.drawable.ic_mic)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(pad, pad, pad, pad)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
         }
+        buttonView = FrameLayout(this).apply { addView(micIconView) }
         applyIdleStyle()
 
         params = WindowManager.LayoutParams(
@@ -257,7 +265,7 @@ class FloatingButtonService : Service() {
             val wave = amplitudeHistory.joinToString("") { a ->
                 WAVE_CHARS[(a * (WAVE_CHARS.size - 1)).toInt().coerceIn(0, WAVE_CHARS.size - 1)].toString()
             }.padEnd(7, '▁')
-            showStatus("$wave  $time", Color.parseColor("#FF3B30"))
+            recLabelView?.text = "$wave  $time"
             amplitudeHandler.postDelayed(this, 120)
         }
     }
@@ -288,7 +296,8 @@ class FloatingButtonService : Service() {
         val dp = resources.displayMetrics.density
         buttonView.alpha = 1f
         buttonView.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = buttonSize / 2f
             colors = intArrayOf(Color.parseColor("#FF1A40"), Color.parseColor("#8B0000"))
             orientation = GradientDrawable.Orientation.TL_BR
             setStroke((3 * dp).toInt(), Color.parseColor("#FF4060"))
@@ -454,15 +463,44 @@ class FloatingButtonService : Service() {
                 start()
             }
             isRecording = true
+
+            val dp = resources.displayMetrics.density
+            val pillWidth = (132 * dp).toInt()
+
+            recLabelView = TextView(this).apply {
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                letterSpacing = 0.05f
+                text = "▁▁▁▁▁▁▁  0:00"
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                ).apply { gravity = Gravity.CENTER }
+            }
+            micIconView.visibility = View.GONE
+            buttonView.addView(recLabelView)
+
             applyRecordingStyle()
+            ValueAnimator.ofInt(buttonSize, pillWidth).apply {
+                duration = 220
+                interpolator = OvershootInterpolator(1.1f)
+                addUpdateListener {
+                    params.width = it.animatedValue as Int
+                    runCatching { windowManager.updateViewLayout(buttonView, params) }
+                }
+                start()
+            }
+
             amplitudeHistory.clear()
             recordingSeconds = 0
             amplitudeHandler.post(amplitudeRunnable)
             timerHandler.post(timerRunnable)
             startPulseRing()
-            pulse()
         }.onFailure {
             isRecording = false
+            recLabelView = null
+            micIconView.visibility = View.VISIBLE
             lastRecordingFile = null
             file.delete()
         }
@@ -473,11 +511,24 @@ class FloatingButtonService : Service() {
         runCatching { mediaRecorder?.apply { stop(); release() } }
         mediaRecorder = null
         isRecording = false
+
+        buttonView.removeView(recLabelView)
+        recLabelView = null
+        micIconView.visibility = View.VISIBLE
         applyIdleStyle()
         buttonView.animate().cancel()
         buttonView.scaleX = 1f
         buttonView.scaleY = 1f
         stopPulseRing()
+        ValueAnimator.ofInt(params.width, buttonSize).apply {
+            duration = 180
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                params.width = it.animatedValue as Int
+                runCatching { windowManager.updateViewLayout(buttonView, params) }
+            }
+            start()
+        }
 
         val file = lastRecordingFile ?: return
         lastRecordingFile = null
