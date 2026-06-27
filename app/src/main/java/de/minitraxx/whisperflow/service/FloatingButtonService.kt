@@ -364,17 +364,13 @@ class FloatingButtonService : Service() {
                 true
             }
             MotionEvent.ACTION_MOVE -> {
+                if (isEdgeCollapsed) return@setOnTouchListener true
                 val dx = (event.rawX - initialTouchX).toInt()
                 val dy = (event.rawY - initialTouchY).toInt()
                 if (abs(dx) > 8 || abs(dy) > 8) {
                     if (!isDragging) {
                         isDragging = true
                         longPressHandler.removeCallbacks(longPressRunnable)
-                        // Dragging from collapsed = pop back to full immediately
-                        if (isEdgeCollapsed) {
-                            isEdgeCollapsed = false
-                            applyIdleStyle()
-                        }
                     }
                     params.x = (initialX + dx).coerceAtLeast(0)
                     params.y = (initialY + dy).coerceAtLeast(0)
@@ -537,18 +533,8 @@ class FloatingButtonService : Service() {
         }
     }
 
-    private fun String.stripDictationPrefix(): String {
-        val prefixes = listOf(
-            "Nachricht: ", "Nachricht:", "Nachricht ",
-            "Text: ", "Text:", "Diktat: ", "Diktat:",
-            "Message: ", "Message:"
-        )
-        for (prefix in prefixes) {
-            if (startsWith(prefix, ignoreCase = true))
-                return removeRange(0, prefix.length).trimStart()
-        }
-        return this
-    }
+    private fun String.stripDictationPrefix(): String =
+        replace(Regex("""^(Nachricht|Text|Diktat|Message)[:\s,\-–]+""", RegexOption.IGNORE_CASE), "").trimStart()
 
     // ── Utilities ─────────────────────────────────────────────────────────────
 
