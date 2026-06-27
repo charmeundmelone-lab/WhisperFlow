@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.minitraxx.whisperflow.service.FloatingButtonService
@@ -79,6 +81,8 @@ class MainActivity : ComponentActivity() {
 
                 val prefs = remember { getSharedPreferences(FloatingButtonService.PREFS_NAME, Context.MODE_PRIVATE) }
                 var styleProfile by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_STYLE_PROFILE, FloatingButtonService.PROFILE_WHATSAPP) ?: FloatingButtonService.PROFILE_WHATSAPP) }
+                var openAiKey by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_OPENAI_API_KEY, "") ?: "").trim()) }
+                var anthropicKey by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, "") ?: "").trim()) }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val budget = remember(refresh) { CostTracker.getBudget(this) }
@@ -88,6 +92,8 @@ class MainActivity : ComponentActivity() {
                     micGranted = micGranted,
                     serviceRunning = serviceRunning,
                     accessibilityEnabled = accessibilityEnabled,
+                    openAiKey = openAiKey,
+                    anthropicKey = anthropicKey,
                     spent = spent,
                     budget = budget,
                     onRequestOverlay = {
@@ -112,6 +118,14 @@ class MainActivity : ComponentActivity() {
                         styleProfile = profile
                         prefs.edit().putString(FloatingButtonService.KEY_STYLE_PROFILE, profile).apply()
                     },
+                    onOpenAiKeyChange = { key ->
+                        openAiKey = key.trim()
+                        prefs.edit().putString(FloatingButtonService.KEY_OPENAI_API_KEY, key.trim()).apply()
+                    },
+                    onAnthropicKeyChange = { key ->
+                        anthropicKey = key.trim()
+                        prefs.edit().putString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, key.trim()).apply()
+                    },
                     onResetBudget = {
                         CostTracker.reset(this)
                         refreshTrigger++
@@ -132,6 +146,8 @@ fun MainScreen(
     micGranted: Boolean,
     serviceRunning: Boolean,
     accessibilityEnabled: Boolean,
+    openAiKey: String,
+    anthropicKey: String,
     spent: Double,
     budget: Double,
     styleProfile: String,
@@ -141,6 +157,8 @@ fun MainScreen(
     onStopService: () -> Unit,
     onRequestAccessibility: () -> Unit,
     onStyleProfileChange: (String) -> Unit,
+    onOpenAiKeyChange: (String) -> Unit,
+    onAnthropicKeyChange: (String) -> Unit,
     onResetBudget: () -> Unit,
     onBudgetLimitChange: (Double) -> Unit
 ) {
@@ -202,12 +220,99 @@ fun MainScreen(
 
         if (allSetUp) {
             Spacer(Modifier.height(24.dp))
+            ApiKeyCard(
+                openAiKey = openAiKey,
+                anthropicKey = anthropicKey,
+                onOpenAiKeyChange = onOpenAiKeyChange,
+                onAnthropicKeyChange = onAnthropicKeyChange
+            )
+            Spacer(Modifier.height(12.dp))
             ProfileCard(currentProfile = styleProfile, onProfileChange = onStyleProfileChange)
             Spacer(Modifier.height(12.dp))
             BudgetCard(
                 spent = spent, budget = budget, remaining = remaining,
                 exceeded = budgetExceeded, onReset = onResetBudget,
                 onBudgetLimitChange = onBudgetLimitChange
+            )
+        }
+    }
+}
+
+@Composable
+fun ApiKeyCard(
+    openAiKey: String,
+    anthropicKey: String,
+    onOpenAiKeyChange: (String) -> Unit,
+    onAnthropicKeyChange: (String) -> Unit
+) {
+    var showOpenAi by remember { mutableStateOf(false) }
+    var showAnthropic by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("API-Keys", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(
+                        "Einmalig eingeben — bleibt gespeichert",
+                        color = Color(0xFF8E8E93), fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(
+                            if (openAiKey.isNotBlank()) Color(0xFF30D158) else Color(0xFFFF453A),
+                            RoundedCornerShape(50)
+                        )
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = openAiKey,
+                onValueChange = onOpenAiKeyChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("OpenAI Key (sk-...)", color = Color(0xFF8E8E93), fontSize = 12.sp) },
+                visualTransformation = if (showOpenAi) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    TextButton(onClick = { showOpenAi = !showOpenAi }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text(if (showOpenAi) "Verbergen" else "Zeigen", color = Color(0xFF0A84FF), fontSize = 12.sp)
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF0A84FF), unfocusedBorderColor = Color(0xFF3A3A3C),
+                    cursorColor = Color(0xFF0A84FF)
+                ),
+                singleLine = true,
+                shape = RoundedCornerShape(8.dp),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = anthropicKey,
+                onValueChange = onAnthropicKeyChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Anthropic Key (optional, für Stilkorrektur)", color = Color(0xFF8E8E93), fontSize = 12.sp) },
+                visualTransformation = if (showAnthropic) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    TextButton(onClick = { showAnthropic = !showAnthropic }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text(if (showAnthropic) "Verbergen" else "Zeigen", color = Color(0xFF0A84FF), fontSize = 12.sp)
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF0A84FF), unfocusedBorderColor = Color(0xFF3A3A3C),
+                    cursorColor = Color(0xFF0A84FF)
+                ),
+                singleLine = true,
+                shape = RoundedCornerShape(8.dp),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
             )
         }
     }

@@ -14,8 +14,6 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("String", "OPENAI_API_KEY", "\"${System.getenv("OPENAI_API_KEY") ?: ""}\"")
-        buildConfigField("String", "ANTHROPIC_API_KEY", "\"${System.getenv("ANTHROPIC_API_KEY") ?: ""}\"")
     }
 
     signingConfigs {

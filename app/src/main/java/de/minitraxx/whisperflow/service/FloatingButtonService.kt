@@ -22,7 +22,6 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import de.minitraxx.whisperflow.BuildConfig
 import de.minitraxx.whisperflow.MainActivity
 import de.minitraxx.whisperflow.R
 import de.minitraxx.whisperflow.api.ClaudeClient
@@ -473,12 +472,8 @@ class FloatingButtonService : Service() {
 
     private suspend fun processAudio(file: File) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val openAiKey = BuildConfig.OPENAI_API_KEY.ifBlank {
-            (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
-        }
-        val anthropicKey = BuildConfig.ANTHROPIC_API_KEY.ifBlank {
-            (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
-        }
+        val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
+        val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
         val profile = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
 
         if (openAiKey.isBlank()) {
