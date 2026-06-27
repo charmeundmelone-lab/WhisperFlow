@@ -510,7 +510,7 @@ class FloatingButtonService : Service() {
             else -> profile
         }
 
-        val finalText = if (anthropicKey.isNotBlank()) {
+        val finalText = (if (anthropicKey.isNotBlank()) {
             val profileLabel = when (effectiveProfile) {
                 PROFILE_PROFESSIONAL -> "Professionell"
                 PROFILE_FORMAL -> "Formal"
@@ -527,7 +527,7 @@ class FloatingButtonService : Service() {
                 .getOrDefault(transcription)
         } else {
             transcription
-        }
+        }).stripDictationPrefix()
 
         withContext(Dispatchers.Main) {
             if (WhisperAccessibilityService.isRunning) {
@@ -540,6 +540,19 @@ class FloatingButtonService : Service() {
                 clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", finalText))
             }
         }
+    }
+
+    private fun String.stripDictationPrefix(): String {
+        val prefixes = listOf(
+            "Nachricht: ", "Nachricht:", "Nachricht ",
+            "Text: ", "Text:", "Diktat: ", "Diktat:",
+            "Message: ", "Message:"
+        )
+        for (prefix in prefixes) {
+            if (startsWith(prefix, ignoreCase = true))
+                return removeRange(0, prefix.length).trimStart()
+        }
+        return this
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
