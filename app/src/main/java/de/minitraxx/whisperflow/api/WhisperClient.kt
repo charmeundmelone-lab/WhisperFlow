@@ -17,15 +17,16 @@ object WhisperClient {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    suspend fun transcribe(file: File, apiKey: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun transcribe(file: File, apiKey: String, language: String = ""): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val body = MultipartBody.Builder()
+            val builder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file", file.name, file.asRequestBody("audio/m4a".toMediaType()))
                 .addFormDataPart("model", "whisper-1")
                 .addFormDataPart("response_format", "text")
                 .addFormDataPart("prompt", "Gesprochener Text, direkt transkribiert.")
-                .build()
+            if (language.isNotBlank()) builder.addFormDataPart("language", language)
+            val body = builder.build()
 
             val request = Request.Builder()
                 .url("https://api.openai.com/v1/audio/transcriptions")

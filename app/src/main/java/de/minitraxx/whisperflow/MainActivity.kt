@@ -83,8 +83,11 @@ class MainActivity : ComponentActivity() {
                 var styleProfile by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_STYLE_PROFILE, FloatingButtonService.PROFILE_WHATSAPP) ?: FloatingButtonService.PROFILE_WHATSAPP) }
                 var openAiKey by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_OPENAI_API_KEY, "") ?: "").trim()) }
                 var anthropicKey by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, "") ?: "").trim()) }
+                var language by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_LANGUAGE, "") ?: "")) }
+                var previewEnabled by remember { mutableStateOf(prefs.getBoolean(FloatingButtonService.KEY_PREVIEW_ENABLED, false)) }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
+                val todaySpent = remember(refresh) { CostTracker.getTodaySpent(this) }
                 val budget = remember(refresh) { CostTracker.getBudget(this) }
 
                 MainScreen(
@@ -94,7 +97,10 @@ class MainActivity : ComponentActivity() {
                     accessibilityEnabled = accessibilityEnabled,
                     openAiKey = openAiKey,
                     anthropicKey = anthropicKey,
+                    language = language,
+                    previewEnabled = previewEnabled,
                     spent = spent,
+                    todaySpent = todaySpent,
                     budget = budget,
                     onRequestOverlay = {
                         startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -126,6 +132,14 @@ class MainActivity : ComponentActivity() {
                         anthropicKey = key.trim()
                         prefs.edit().putString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, key.trim()).apply()
                     },
+                    onLanguageChange = { lang ->
+                        language = lang
+                        prefs.edit().putString(FloatingButtonService.KEY_LANGUAGE, lang).apply()
+                    },
+                    onPreviewEnabledChange = { enabled ->
+                        previewEnabled = enabled
+                        prefs.edit().putBoolean(FloatingButtonService.KEY_PREVIEW_ENABLED, enabled).apply()
+                    },
                     onResetBudget = {
                         CostTracker.reset(this)
                         refreshTrigger++
@@ -148,7 +162,10 @@ fun MainScreen(
     accessibilityEnabled: Boolean,
     openAiKey: String,
     anthropicKey: String,
+    language: String,
+    previewEnabled: Boolean,
     spent: Double,
+    todaySpent: Double,
     budget: Double,
     styleProfile: String,
     onRequestOverlay: () -> Unit,
@@ -159,6 +176,8 @@ fun MainScreen(
     onStyleProfileChange: (String) -> Unit,
     onOpenAiKeyChange: (String) -> Unit,
     onAnthropicKeyChange: (String) -> Unit,
+    onLanguageChange: (String) -> Unit,
+    onPreviewEnabledChange: (Boolean) -> Unit,
     onResetBudget: () -> Unit,
     onBudgetLimitChange: (Double) -> Unit
 ) {
@@ -201,7 +220,7 @@ fun MainScreen(
         Spacer(Modifier.height(12.dp))
         SetupStep(
             number = "3", title = "Floating Button",
-            description = "Tippen = Start/Stopp  ·  Gedrückt halten = Walkie-Talkie",
+            description = "Tippen = Start/Stopp  ·  Gedrückt halten = Walkie-Talkie  ·  Nach oben wischen = Profil wechseln",
             done = serviceRunning,
             actionLabel = if (serviceRunning) "Button stoppen" else "Button starten",
             showAction = allSetUp,
@@ -229,11 +248,19 @@ fun MainScreen(
             Spacer(Modifier.height(12.dp))
             ProfileCard(currentProfile = styleProfile, onProfileChange = onStyleProfileChange)
             Spacer(Modifier.height(12.dp))
+            SettingsCard(
+                language = language,
+                previewEnabled = previewEnabled,
+                onLanguageChange = onLanguageChange,
+                onPreviewEnabledChange = onPreviewEnabledChange
+            )
+            Spacer(Modifier.height(12.dp))
             BudgetCard(
-                spent = spent, budget = budget, remaining = remaining,
+                spent = spent, todaySpent = todaySpent, budget = budget, remaining = remaining,
                 exceeded = budgetExceeded, onReset = onResetBudget,
                 onBudgetLimitChange = onBudgetLimitChange
             )
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
@@ -319,15 +346,8 @@ fun ApiKeyCard(
 }
 
 @Composable
-fun ProfileCard(
-    currentProfile: String,
-    onProfileChange: (String) -> Unit
-) {
-    val profiles = listOf(
-        "whatsapp" to "WhatsApp",
-        "professional" to "Professionell",
-        "formal" to "Formal"
-    )
+fun ProfileCard(currentProfile: String, onProfileChange: (String) -> Unit) {
+    val profiles = listOf("whatsapp" to "WhatsApp", "professional" to "Professionell", "formal" to "Formal")
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
@@ -336,7 +356,7 @@ fun ProfileCard(
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Stil-Profil", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Text(
-                "Wie soll Claude den Text formulieren?",
+                "Wie soll Claude den Text formulieren?  ·  Button nach oben wischen = schnell wechseln",
                 color = Color(0xFF8E8E93), fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
             )
@@ -361,8 +381,69 @@ fun ProfileCard(
 }
 
 @Composable
+fun SettingsCard(
+    language: String,
+    previewEnabled: Boolean,
+    onLanguageChange: (String) -> Unit,
+    onPreviewEnabledChange: (Boolean) -> Unit
+) {
+    val languages = listOf("" to "Auto", "de" to "DE", "en" to "EN", "fr" to "FR", "es" to "ES")
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Einstellungen", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Spacer(Modifier.height(12.dp))
+
+            Text("Sprache", color = Color(0xFF8E8E93), fontSize = 13.sp)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                languages.forEach { (code, label) ->
+                    val selected = language == code
+                    Button(
+                        onClick = { onLanguageChange(code) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) Color(0xFF0A84FF) else Color(0xFF2C2C2E)
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp)
+                    ) {
+                        Text(label, fontSize = 12.sp, color = Color.White)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Vorschau vor Einfügen", color = Color.White, fontSize = 14.sp)
+                    Text(
+                        "Text prüfen bevor er eingefügt wird",
+                        color = Color(0xFF8E8E93), fontSize = 12.sp
+                    )
+                }
+                Switch(
+                    checked = previewEnabled,
+                    onCheckedChange = onPreviewEnabledChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF0A84FF),
+                        uncheckedThumbColor = Color(0xFF8E8E93),
+                        uncheckedTrackColor = Color(0xFF2C2C2E)
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun BudgetCard(
     spent: Double,
+    todaySpent: Double,
     budget: Double,
     remaining: Double,
     exceeded: Boolean,
@@ -399,56 +480,50 @@ fun BudgetCard(
                 color = if (exceeded) Color(0xFFFF453A) else Color(0xFF0A84FF),
                 trackColor = Color(0xFF2C2C2E)
             )
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "%.4f € von %.2f € genutzt".format(spent, budget),
-                    color = Color(0xFF8E8E93),
-                    fontSize = 12.sp,
-                    modifier = Modifier.weight(1f)
-                )
-                if (exceeded) {
-                    TextButton(
-                        onClick = onReset,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Text("Reset", color = Color(0xFF0A84FF), fontSize = 12.sp)
-                    }
-                }
-            }
             Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Limit:", color = Color(0xFF8E8E93), fontSize = 13.sp)
-                Spacer(Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = budgetInput,
-                    onValueChange = { v ->
-                        budgetInput = v.filter { it.isDigit() || it == '.' }
-                        v.toDoubleOrNull()?.let { if (it > 0) onBudgetLimitChange(it) }
-                    },
-                    modifier = Modifier.width(80.dp),
-                    suffix = { Text("€", color = Color(0xFF8E8E93), fontSize = 13.sp) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color(0xFF0A84FF),
-                        unfocusedBorderColor = Color(0xFF3A3A3C),
-                        cursorColor = Color(0xFF0A84FF)
-                    ),
-                    singleLine = true,
-                    shape = RoundedCornerShape(8.dp),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
-                )
+            Row {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Heute", color = Color(0xFF8E8E93), fontSize = 11.sp)
+                    Text("%.4f €".format(todaySpent), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Gesamt", color = Color(0xFF8E8E93), fontSize = 11.sp)
+                    Text("%.4f €".format(spent), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                    Text("Limit", color = Color(0xFF8E8E93), fontSize = 11.sp)
+                    OutlinedTextField(
+                        value = budgetInput,
+                        onValueChange = { v ->
+                            budgetInput = v.filter { it.isDigit() || it == '.' }
+                            v.toDoubleOrNull()?.let { if (it > 0) onBudgetLimitChange(it) }
+                        },
+                        modifier = Modifier.width(72.dp),
+                        suffix = { Text("€", color = Color(0xFF8E8E93), fontSize = 11.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFF0A84FF), unfocusedBorderColor = Color(0xFF3A3A3C),
+                            cursorColor = Color(0xFF0A84FF)
+                        ),
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    )
+                }
             }
             if (exceeded) {
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "Guthaben aufgebraucht. Konto auf platform.openai.com aufladen, dann Reset tippen.",
-                    color = Color(0xFFFF453A),
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Guthaben aufgebraucht — platform.openai.com aufladen, dann Reset.",
+                        color = Color(0xFFFF453A), fontSize = 12.sp, lineHeight = 17.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onReset, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("Reset", color = Color(0xFF0A84FF), fontSize = 12.sp)
+                    }
+                }
             }
         }
     }

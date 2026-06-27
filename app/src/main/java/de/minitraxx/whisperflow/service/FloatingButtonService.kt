@@ -18,7 +18,9 @@ import android.os.Looper
 import android.view.*
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
+import android.widget.Button
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -48,7 +50,6 @@ class FloatingButtonService : Service() {
     private var isDragging = false
     private var recordingStartTime = 0L
 
-    // Edge-Tab state
     private var isEdgeCollapsed = false
     private var collapsedOnLeft = false
     private var buttonSize = 0
@@ -61,6 +62,15 @@ class FloatingButtonService : Service() {
     private var statusParams: WindowManager.LayoutParams? = null
     private val timerHandler = Handler(Looper.getMainLooper())
     private var recordingSeconds = 0
+
+    private var pulseRingView: View? = null
+    private var pulseRingParams: WindowManager.LayoutParams? = null
+    private var pulseRingAnimator: ValueAnimator? = null
+
+    private var previewView: View? = null
+
+    private val amplitudeHandler = Handler(Looper.getMainLooper())
+    private val amplitudeHistory = ArrayDeque<Float>()
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -84,6 +94,8 @@ class FloatingButtonService : Service() {
         const val KEY_OPENAI_API_KEY = "openai_api_key"
         const val KEY_ANTHROPIC_API_KEY = "anthropic_api_key"
         const val KEY_STYLE_PROFILE = "style_profile"
+        const val KEY_LANGUAGE = "whisper_language"
+        const val KEY_PREVIEW_ENABLED = "preview_enabled"
         const val PROFILE_WHATSAPP = "whatsapp"
         const val PROFILE_PROFESSIONAL = "professional"
         const val PROFILE_FORMAL = "formal"
@@ -115,8 +127,11 @@ class FloatingButtonService : Service() {
         isRunning = false
         longPressHandler.removeCallbacks(longPressRunnable)
         timerHandler.removeCallbacksAndMessages(null)
+        amplitudeHandler.removeCallbacksAndMessages(null)
         serviceScope.cancel()
         if (isRecording) stopRecording(transcribe = false)
+        stopPulseRing()
+        hidePreviewOverlay()
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
         runCatching { statusView?.let { windowManager.removeView(it) } }
         statusView = null
@@ -147,7 +162,6 @@ class FloatingButtonService : Service() {
             setImageResource(R.drawable.ic_mic)
             scaleType = ImageView.ScaleType.FIT_CENTER
             setPadding(pad, pad, pad, pad)
-            elevation = 10f * dp
         }
         applyIdleStyle()
 
@@ -170,15 +184,18 @@ class FloatingButtonService : Service() {
     private fun setupStatusView() {
         val dp = resources.displayMetrics.density
         val tv = TextView(this).apply {
-            setPadding((12 * dp).toInt(), (6 * dp).toInt(), (12 * dp).toInt(), (6 * dp).toInt())
+            setPadding((14 * dp).toInt(), (7 * dp).toInt(), (14 * dp).toInt(), (7 * dp).toInt())
             textSize = 13f
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = 20 * dp
-                setColor(Color.parseColor("#E6000000"))
+                cornerRadius = 22 * dp
+                colors = intArrayOf(Color.parseColor("#CC1C1C1E"), Color.parseColor("#E6000000"))
+                orientation = GradientDrawable.Orientation.TL_BR
+                setStroke((1 * dp).toInt(), Color.parseColor("#44FFFFFF"))
             }
-            visibility = android.view.View.GONE
+            elevation = 8f * dp
+            visibility = View.GONE
         }
         val sp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -212,26 +229,42 @@ class FloatingButtonService : Service() {
             statusView?.apply {
                 setTextColor(color)
                 this.text = text
-                visibility = android.view.View.VISIBLE
+                visibility = View.VISIBLE
             }
         }
     }
 
     private fun hideStatus(delayMs: Long = 0) {
         Handler(Looper.getMainLooper()).postDelayed({
-            statusView?.visibility = android.view.View.GONE
+            statusView?.visibility = View.GONE
         }, delayMs)
     }
 
-    // ── Timer ──────────────────────────────────────────────────────────────────
+    // ── Amplitude + Waveform ───────────────────────────────────────────────────
+
+    private val WAVE_CHARS = charArrayOf('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
+
+    private val amplitudeRunnable = object : Runnable {
+        override fun run() {
+            if (!isRecording) return
+            val amp = (mediaRecorder?.maxAmplitude ?: 0).coerceIn(0, 32767)
+            if (amplitudeHistory.size >= 7) amplitudeHistory.removeFirst()
+            amplitudeHistory.addLast(amp / 32767f)
+
+            val s = recordingSeconds
+            val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
+                       else "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+            val wave = amplitudeHistory.joinToString("") { a ->
+                WAVE_CHARS[(a * (WAVE_CHARS.size - 1)).toInt().coerceIn(0, WAVE_CHARS.size - 1)].toString()
+            }.padEnd(7, '▁')
+            showStatus("$wave  $time", Color.parseColor("#FF3B30"))
+            amplitudeHandler.postDelayed(this, 120)
+        }
+    }
 
     private val timerRunnable = object : Runnable {
         override fun run() {
             if (!isRecording) return
-            val s = recordingSeconds
-            val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
-                       else "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
-            showStatus("● $time", Color.parseColor("#FF3B30"))
             recordingSeconds++
             timerHandler.postDelayed(this, 1000)
         }
@@ -240,39 +273,45 @@ class FloatingButtonService : Service() {
     // ── Visual styles ──────────────────────────────────────────────────────────
 
     private fun applyIdleStyle() {
+        val dp = resources.displayMetrics.density
         buttonView.alpha = 1f
-        val stroke = (1.5f * resources.displayMetrics.density).toInt()
         buttonView.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(Color.parseColor("#1C1C1E"))
-            setStroke(stroke, Color.parseColor("#3A3A3C"))
+            colors = intArrayOf(Color.parseColor("#2C2C2F"), Color.parseColor("#141416"))
+            orientation = GradientDrawable.Orientation.TL_BR
+            setStroke((2 * dp).toInt(), Color.parseColor("#48484A"))
         }
+        buttonView.elevation = 10f * dp
     }
 
     private fun applyRecordingStyle() {
+        val dp = resources.displayMetrics.density
         buttonView.alpha = 1f
-        val stroke = (1.5f * resources.displayMetrics.density).toInt()
         buttonView.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(Color.parseColor("#C00020"))
-            setStroke(stroke, Color.parseColor("#FF2040"))
+            colors = intArrayOf(Color.parseColor("#FF1A40"), Color.parseColor("#8B0000"))
+            orientation = GradientDrawable.Orientation.TL_BR
+            setStroke((3 * dp).toInt(), Color.parseColor("#FF4060"))
         }
+        buttonView.elevation = 18f * dp
     }
 
     private fun applyEdgeTabStyle() {
-        val stroke = (1.5f * resources.displayMetrics.density).toInt()
+        val dp = resources.displayMetrics.density
         buttonView.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(Color.parseColor("#1A1A2E"))
-            setStroke(stroke, Color.parseColor("#3A3A6E"))
+            colors = intArrayOf(Color.parseColor("#1E1E30"), Color.parseColor("#0D0D1A"))
+            orientation = GradientDrawable.Orientation.TL_BR
+            setStroke((1.5f * dp).toInt(), Color.parseColor("#3A3A6E"))
         }
+        buttonView.elevation = 4f * dp
     }
 
     // ── Edge-Tab logic ─────────────────────────────────────────────────────────
 
     private fun isNearEdge(): Boolean {
         val sw = getScreenWidth()
-        val edgeZone = sw / 4  // outer 25% of screen on each side
+        val edgeZone = sw / 4
         return params.x < edgeZone || params.x + buttonSize > sw - edgeZone
     }
 
@@ -288,7 +327,6 @@ class FloatingButtonService : Service() {
         applyEdgeTabStyle()
         hideStatus()
 
-        // Slide to screen edge
         ValueAnimator.ofInt(params.x, targetX).apply {
             duration = 260
             interpolator = DecelerateInterpolator()
@@ -300,10 +338,8 @@ class FloatingButtonService : Service() {
             start()
         }
 
-        // Simultaneously squish to half width — creates the half-circle tab look
         buttonView.animate()
-            .scaleX(0.5f)
-            .alpha(0.75f)
+            .scaleX(0.5f).alpha(0.75f)
             .setDuration(260)
             .setInterpolator(DecelerateInterpolator())
             .start()
@@ -315,26 +351,16 @@ class FloatingButtonService : Service() {
         val sw = getScreenWidth()
         val targetX = if (collapsedOnLeft) pad else sw - buttonSize - pad
 
-        // Restore idle background
-        val stroke = (1.5f * resources.displayMetrics.density).toInt()
-        buttonView.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.parseColor("#1C1C1E"))
-            setStroke(stroke, Color.parseColor("#3A3A3C"))
-        }
-
+        applyIdleStyle()
         buttonView.pivotX = if (collapsedOnLeft) 0f else buttonSize.toFloat()
         buttonView.pivotY = buttonSize / 2f
 
-        // Spring back to full size
         buttonView.animate()
-            .scaleX(1f)
-            .alpha(1f)
+            .scaleX(1f).alpha(1f)
             .setDuration(240)
             .setInterpolator(OvershootInterpolator(1.3f))
             .start()
 
-        // Slide slightly away from edge
         ValueAnimator.ofInt(params.x, targetX).apply {
             duration = 240
             interpolator = OvershootInterpolator(1.3f)
@@ -382,11 +408,11 @@ class FloatingButtonService : Service() {
             MotionEvent.ACTION_UP -> {
                 longPressHandler.removeCallbacks(longPressRunnable)
                 val elapsed = System.currentTimeMillis() - touchDownTime
+                val swipeDy = event.rawY - initialTouchY
                 when {
-                    // Tap on collapsed tab → expand
                     isEdgeCollapsed && !isDragging -> expandFromEdge()
-                    // Drag to screen edge → collapse (only if not recording)
                     isDragging && !isRecording && isNearEdge() -> collapseToEdge()
+                    isDragging && !isRecording && swipeDy < -80 -> cycleProfile()
                     isDragging -> {}
                     isWalkieTalkieMode -> {
                         isWalkieTalkieMode = false
@@ -429,8 +455,11 @@ class FloatingButtonService : Service() {
             }
             isRecording = true
             applyRecordingStyle()
+            amplitudeHistory.clear()
             recordingSeconds = 0
+            amplitudeHandler.post(amplitudeRunnable)
             timerHandler.post(timerRunnable)
+            startPulseRing()
             pulse()
         }.onFailure {
             isRecording = false
@@ -448,10 +477,13 @@ class FloatingButtonService : Service() {
         buttonView.animate().cancel()
         buttonView.scaleX = 1f
         buttonView.scaleY = 1f
+        stopPulseRing()
 
         val file = lastRecordingFile ?: return
         lastRecordingFile = null
         timerHandler.removeCallbacks(timerRunnable)
+        amplitudeHandler.removeCallbacks(amplitudeRunnable)
+        amplitudeHistory.clear()
 
         if (!transcribe || durationMs < 300) {
             file.delete()
@@ -464,6 +496,64 @@ class FloatingButtonService : Service() {
         serviceScope.launch { processAudio(file) }
     }
 
+    // ── Pulse ring ────────────────────────────────────────────────────────────
+
+    private fun startPulseRing() {
+        stopPulseRing()
+        val dp = resources.displayMetrics.density
+        val ringSize = (buttonSize * 2.2f).toInt()
+
+        val ringDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.TRANSPARENT)
+            setStroke((3 * dp).toInt(), Color.parseColor("#80FF3B30"))
+        }
+        val ringView = View(this).apply { background = ringDrawable }
+
+        val offset = (buttonSize - ringSize) / 2
+        val rp = WindowManager.LayoutParams(
+            ringSize, ringSize,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = params.x + offset
+            y = params.y + offset
+        }
+
+        pulseRingView = ringView
+        pulseRingParams = rp
+        windowManager.addView(ringView, rp)
+
+        pulseRingAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1400
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.RESTART
+            addUpdateListener { anim ->
+                val f = anim.animatedFraction
+                ringView.alpha = 1f - f
+                val scale = 0.6f + 0.8f * f
+                val sz = (buttonSize * scale).toInt().coerceAtLeast(1)
+                val off = (buttonSize - sz) / 2
+                rp.width = sz
+                rp.height = sz
+                rp.x = params.x + off
+                rp.y = params.y + off
+                runCatching { windowManager.updateViewLayout(ringView, rp) }
+            }
+            start()
+        }
+    }
+
+    private fun stopPulseRing() {
+        pulseRingAnimator?.cancel()
+        pulseRingAnimator = null
+        runCatching { pulseRingView?.let { windowManager.removeView(it) } }
+        pulseRingView = null
+        pulseRingParams = null
+    }
+
     // ── Audio processing ──────────────────────────────────────────────────────
 
     private suspend fun processAudio(file: File) {
@@ -471,6 +561,8 @@ class FloatingButtonService : Service() {
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
         val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
         val profile = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
+        val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
+        val previewEnabled = prefs.getBoolean(KEY_PREVIEW_ENABLED, false)
 
         if (openAiKey.isBlank()) {
             showToast("Kein OpenAI API-Key — bitte in der WhisperFlow-App eintragen")
@@ -479,12 +571,12 @@ class FloatingButtonService : Service() {
             return
         }
 
-        val transcription = WhisperClient.transcribe(file, openAiKey).getOrElse {
+        val transcription = WhisperClient.transcribe(file, openAiKey, language).getOrElse {
             showToast("Whisper-Fehler: ${it.message?.take(60)}")
             hideStatus()
             file.delete()
             return
-        }
+        }.removeFillWords()
         file.delete()
 
         val activePackage = capturedPackage
@@ -518,10 +610,13 @@ class FloatingButtonService : Service() {
                 .getOrDefault(transcription)
         } else {
             transcription
-        }).stripDictationPrefix()
+        }).stripDictationPrefix().replacePunctuationWords()
 
         withContext(Dispatchers.Main) {
-            if (WhisperAccessibilityService.isRunning) {
+            if (previewEnabled && WhisperAccessibilityService.isRunning) {
+                hideStatus()
+                showPreviewOverlay(finalText)
+            } else if (WhisperAccessibilityService.isRunning) {
                 hideStatus(1200)
                 WhisperAccessibilityService.inject(finalText)
             } else {
@@ -533,8 +628,136 @@ class FloatingButtonService : Service() {
         }
     }
 
+    // ── Korrektur-Vorschau ────────────────────────────────────────────────────
+
+    private fun showPreviewOverlay(text: String) {
+        hidePreviewOverlay()
+        val dp = resources.displayMetrics.density
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20 * dp
+                colors = intArrayOf(Color.parseColor("#E01C1C1E"), Color.parseColor("#F0000000"))
+                orientation = GradientDrawable.Orientation.TL_BR
+                setStroke((1 * dp).toInt(), Color.parseColor("#44FFFFFF"))
+            }
+            elevation = 16f * dp
+            setPadding((16 * dp).toInt(), (14 * dp).toInt(), (16 * dp).toInt(), (14 * dp).toInt())
+        }
+
+        val previewText = TextView(this).apply {
+            setText(text.take(240) + if (text.length > 240) "…" else "")
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            maxLines = 6
+            setLineSpacing(2 * dp, 1f)
+        }
+
+        val buttonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (10 * dp).toInt(), 0, 0)
+        }
+
+        val cancelBtn = Button(this).apply {
+            setText("✕  Verwerfen")
+            setTextColor(Color.parseColor("#8E8E93"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10 * dp
+                setColor(Color.parseColor("#2C2C2E"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { setMargins(0, 0, (4 * dp).toInt(), 0) }
+            setOnClickListener { hidePreviewOverlay() }
+        }
+
+        val confirmBtn = Button(this).apply {
+            setText("✓  Einfügen")
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10 * dp
+                setColor(Color.parseColor("#0A84FF"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { setMargins((4 * dp).toInt(), 0, 0, 0) }
+            setOnClickListener {
+                hidePreviewOverlay()
+                WhisperAccessibilityService.inject(text)
+            }
+        }
+
+        buttonRow.addView(cancelBtn)
+        buttonRow.addView(confirmBtn)
+        layout.addView(previewText)
+        layout.addView(buttonRow)
+
+        val sw = getScreenWidth()
+        val width = (sw * 0.85f).toInt()
+        val pp = WindowManager.LayoutParams(
+            width,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (sw - width) / 2
+            y = params.y + buttonSize + (20 * dp).toInt()
+        }
+
+        previewView = layout
+        windowManager.addView(layout, pp)
+        Handler(Looper.getMainLooper()).postDelayed({ hidePreviewOverlay() }, 10_000)
+    }
+
+    private fun hidePreviewOverlay() {
+        runCatching { previewView?.let { windowManager.removeView(it) } }
+        previewView = null
+    }
+
+    // ── Text transformations ──────────────────────────────────────────────────
+
     private fun String.stripDictationPrefix(): String =
         replace(Regex("""^(Nachricht|Text|Diktat|Message)[:\s,\-–]+""", RegexOption.IGNORE_CASE), "").trimStart()
+
+    private fun String.removeFillWords(): String =
+        replace(Regex("""\b(ähm|äh|hm|ehm)\b[,\s]*""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\s{2,}"""), " ")
+            .trim()
+
+    private fun String.replacePunctuationWords(): String =
+        replace(Regex("""\bPunkt\b"""), ".")
+            .replace(Regex("""\bKomma\b"""), ",")
+            .replace(Regex("""\bAusrufezeichen\b"""), "!")
+            .replace(Regex("""\bFragezeichen\b"""), "?")
+            .replace(Regex("""\bDoppelpunkt\b"""), ":")
+            .replace(Regex("""\bSemikolon\b"""), ";")
+            .replace(Regex("""\b(Absatz|neue[rn]?\s+Zeile|neuer\s+Absatz)\b""", RegexOption.IGNORE_CASE), "\n")
+
+    // ── Profile cycling (Swipe up) ────────────────────────────────────────────
+
+    private fun cycleProfile() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
+        val next = when (current) {
+            PROFILE_WHATSAPP -> PROFILE_PROFESSIONAL
+            PROFILE_PROFESSIONAL -> PROFILE_FORMAL
+            else -> PROFILE_WHATSAPP
+        }
+        prefs.edit().putString(KEY_STYLE_PROFILE, next).apply()
+        val label = when (next) {
+            PROFILE_PROFESSIONAL -> "Professionell"
+            PROFILE_FORMAL -> "Formal"
+            else -> "WhatsApp"
+        }
+        showStatus("↑ Profil: $label", Color.parseColor("#0A84FF"))
+        hideStatus(1800)
+    }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
 
@@ -550,13 +773,13 @@ class FloatingButtonService : Service() {
     private fun pulse() {
         if (!isRecording) return
         buttonView.animate()
-            .scaleX(1.2f).scaleY(1.2f)
-            .setDuration(500)
+            .scaleX(1.15f).scaleY(1.15f)
+            .setDuration(600)
             .withEndAction {
                 if (!isRecording) return@withEndAction
                 buttonView.animate()
                     .scaleX(1f).scaleY(1f)
-                    .setDuration(500)
+                    .setDuration(600)
                     .withEndAction { pulse() }
                     .start()
             }.start()
