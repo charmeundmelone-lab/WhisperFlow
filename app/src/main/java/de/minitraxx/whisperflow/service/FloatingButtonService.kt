@@ -722,8 +722,18 @@ class FloatingButtonService : Service() {
 
     // ── Text transformations ──────────────────────────────────────────────────
 
-    private fun String.stripDictationPrefix(): String =
-        replace(Regex("""^(Nachricht|Text|Diktat|Message)[:\s,\-–]+""", RegexOption.IGNORE_CASE), "").trimStart()
+    private fun String.stripDictationPrefix(): String {
+        val prefixes = listOf("nachricht", "text", "diktat", "message")
+        val trimmed = trimStart()
+        val lower = trimmed.lowercase()
+        for (prefix in prefixes) {
+            if (lower.startsWith(prefix)) {
+                val remainder = trimmed.drop(prefix.length).dropWhile { !it.isLetter() }
+                if (remainder.isNotBlank()) return remainder
+            }
+        }
+        return trimmed
+    }
 
     private fun String.removeFillWords(): String =
         replace(Regex("""\b(ähm|äh|hm|ehm)\b[,\s]*""", RegexOption.IGNORE_CASE), " ")
