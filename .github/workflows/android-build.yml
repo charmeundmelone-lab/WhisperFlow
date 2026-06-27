@@ -74,13 +74,9 @@ jobs:
           gh release delete latest --yes 2>/dev/null || true
           git push origin :refs/tags/latest 2>/dev/null || true
 
+          NOTES="Build: ${BUILD_DATE} | Commit: ${SHORT_SHA}"
+
           gh release create latest "$APK_FILE#app-debug.apk" \
             --title "WhisperFlow – Neueste Version" \
-            --notes "**Build:** ${BUILD_DATE}
-**Commit:** \`${SHORT_SHA}\`
-
-### Installation
-1. Auf dem Handy: Einstellungen → Apps → Sonderrechte → Unbekannte Quellen (einmalig)
-2. Diese Seite im Handy-Browser öffnen → **app-debug.apk** herunterladen
-3. Auf die Datei tippen → Installieren" \
+            --notes "$NOTES" \
             --latest
