@@ -179,7 +179,10 @@ Push auf main
         app-debug-<sha>.apk    ← versioniert
 ```
 
-APK direkt von `apk-dist` herunterladen und per USB/ADB/Link installieren.
+APK-Download für Familienmitglieder (permanenter Link, immer neueste Version):
+```
+https://github.com/charmeundmelone-lab/WhisperFlow/releases/latest/download/app-debug.apk
+```
 Installiert direkt über Vorgänger-APK ohne Deinstallation (gleiche Keystore-Signatur).
 
 ---
