@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -36,15 +37,11 @@ class WhisperAccessibilityService : AccessibilityService() {
         handler.post {
             val root = rootInActiveWindow ?: return@post
             val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                ?: findFirstEditable(root)
+                ?: findBottomMostEditable(root)
             if (node != null) {
                 node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                 handler.postDelayed({
                     node.refresh()
-                    // Read existing field content and append. WhatsApp and many apps only
-                    // accept ACTION_SET_TEXT if the new text extends what's already there.
-                    // The dictation prefix bugs are fixed upstream (Claude <diktat> tags +
-                    // stripDictationPrefix), so existing content should be clean.
                     val existing = node.text?.toString()?.trimEnd() ?: ""
                     val combined = if (existing.isEmpty()) text else "$existing $text"
                     val bundle = android.os.Bundle().apply {
@@ -55,8 +52,6 @@ class WhisperAccessibilityService : AccessibilityService() {
                     }
                     val ok = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
                     if (!ok) {
-                        // Fallback: clipboard + paste (works in WhatsApp etc.; in Gmail
-                        // the text lands in clipboard so the user can long-press → Einfügen)
                         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", text))
                         node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
@@ -66,13 +61,24 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun findFirstEditable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        if (node.isEditable) return node
-        for (i in 0 until node.childCount) {
-            val found = findFirstEditable(node.getChild(i) ?: continue)
-            if (found != null) return found
+    // Finds the editable field with the highest Y position on screen (= bottom-most).
+    // In chat apps (WhatsApp, Telegram etc.) the compose field is always at the bottom,
+    // so this is more reliable than findFirstEditable when FOCUS_INPUT is lost.
+    private fun findBottomMostEditable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val candidates = mutableListOf<Pair<AccessibilityNodeInfo, Int>>()
+        collectEditables(root, candidates)
+        return candidates.maxByOrNull { it.second }?.first
+    }
+
+    private fun collectEditables(node: AccessibilityNodeInfo, result: MutableList<Pair<AccessibilityNodeInfo, Int>>) {
+        if (node.isEditable) {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            result.add(node to bounds.top)
         }
-        return null
+        for (i in 0 until node.childCount) {
+            collectEditables(node.getChild(i) ?: return, result)
+        }
     }
 
     companion object {
