@@ -420,8 +420,15 @@ class FloatingButtonService : Service() {
                 val swipeDy = event.rawY - initialTouchY
                 when {
                     isEdgeCollapsed && !isDragging -> expandFromEdge()
-                    isDragging && !isRecording && isNearEdge() -> collapseToEdge()
+                    // Swipe-up to cycle profile: check before isNearEdge so it works
+                    // regardless of button position (button starts at x=24 = left edge zone).
                     isDragging && !isRecording && swipeDy < -80 -> cycleProfile()
+                    isDragging && !isRecording && isNearEdge() -> collapseToEdge()
+                    // Walkie-Talkie: stop recording on finger-up even if user drifted slightly.
+                    isDragging && isWalkieTalkieMode -> {
+                        isWalkieTalkieMode = false
+                        stopRecording(transcribe = true)
+                    }
                     isDragging -> {}
                     isWalkieTalkieMode -> {
                         isWalkieTalkieMode = false
