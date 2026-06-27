@@ -29,6 +29,9 @@ jobs:
           gradle-version: "8.14.3"
 
       - name: Build Debug APK
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: gradle assembleDebug --no-daemon
 
       - name: Upload APK artifact

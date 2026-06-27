@@ -94,7 +94,7 @@ app/keystore/debug.jks                 # Persistente APK-Signatur
 | **Drei Stil-Profile** | WhatsApp (locker), Professionell (Business), Formal (Behörden/Briefe) |
 | **Auto-App-Erkennung** | `capturedPackage` wird bei Aufnahme-START gespeichert (nicht bei Verarbeitung) → korrekte Profilerkennung auch wenn App gewechselt wird. WhatsApp → WhatsApp-Profil; Gmail/Outlook/etc. → Professionell; sonst → User-gewähltes Profil |
 | **Text-Injection** | `ACTION_SET_TEXT` (primär, hängt Text an vorhandenen an); Fallback: Clipboard + `ACTION_PASTE` |
-| **Persistente API-Keys** | `SharedPreferences`, Keys werden beim Speichern und Lesen mit `.trim()` bereinigt |
+| **Eingebettete API-Keys** | Zur Build-Zeit via `BuildConfig` (GitHub Secrets `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`); SharedPreferences als Fallback für lokale Builds |
 | **Budget-Tracking** | Geschätzte Kosten (Whisper: $0.006/min, Claude: Pauschale), konfigurierbares Limit, Reset-Button |
 | **Budget-Guard** | Aufnahme wird blockiert wenn Limit überschritten |
 | **Automatischer Service-Start** | Startet sich selbst bei `onResume()` wenn Overlay + Mikrofon erlaubt sind |
@@ -194,8 +194,8 @@ Alle in `FloatingButtonService.companion object`:
 | Konstante | Key | Inhalt |
 |-----------|-----|--------|
 | `PREFS_NAME` | `whisperflow_prefs` | SharedPreferences-Dateiname |
-| `KEY_OPENAI_API_KEY` | `openai_api_key` | OpenAI API Key (`sk-...`) |
-| `KEY_ANTHROPIC_API_KEY` | `anthropic_api_key` | Anthropic API Key (`sk-ant-...`) |
+| `KEY_OPENAI_API_KEY` | `openai_api_key` | OpenAI API Key (Fallback falls BuildConfig leer) |
+| `KEY_ANTHROPIC_API_KEY` | `anthropic_api_key` | Anthropic API Key (Fallback falls BuildConfig leer) |
 | `KEY_STYLE_PROFILE` | `style_profile` | `whatsapp` / `professional` / `formal` |
 
 ---

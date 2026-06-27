@@ -25,8 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.minitraxx.whisperflow.service.FloatingButtonService
@@ -80,8 +78,6 @@ class MainActivity : ComponentActivity() {
                 val accessibilityEnabled = remember(refresh) { isAccessibilityServiceEnabled() }
 
                 val prefs = remember { getSharedPreferences(FloatingButtonService.PREFS_NAME, Context.MODE_PRIVATE) }
-                var openAiKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_OPENAI_API_KEY, "") ?: "") }
-                var anthropicKey by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, "") ?: "") }
                 var styleProfile by remember { mutableStateOf(prefs.getString(FloatingButtonService.KEY_STYLE_PROFILE, FloatingButtonService.PROFILE_WHATSAPP) ?: FloatingButtonService.PROFILE_WHATSAPP) }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
@@ -92,8 +88,6 @@ class MainActivity : ComponentActivity() {
                     micGranted = micGranted,
                     serviceRunning = serviceRunning,
                     accessibilityEnabled = accessibilityEnabled,
-                    openAiKey = openAiKey,
-                    anthropicKey = anthropicKey,
                     spent = spent,
                     budget = budget,
                     onRequestOverlay = {
@@ -112,14 +106,6 @@ class MainActivity : ComponentActivity() {
                     },
                     onRequestAccessibility = {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    },
-                    onOpenAiKeyChange = { key ->
-                        openAiKey = key.trim()
-                        prefs.edit().putString(FloatingButtonService.KEY_OPENAI_API_KEY, key.trim()).apply()
-                    },
-                    onAnthropicKeyChange = { key ->
-                        anthropicKey = key.trim()
-                        prefs.edit().putString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, key.trim()).apply()
                     },
                     styleProfile = styleProfile,
                     onStyleProfileChange = { profile ->
@@ -146,8 +132,6 @@ fun MainScreen(
     micGranted: Boolean,
     serviceRunning: Boolean,
     accessibilityEnabled: Boolean,
-    openAiKey: String,
-    anthropicKey: String,
     spent: Double,
     budget: Double,
     styleProfile: String,
@@ -156,8 +140,6 @@ fun MainScreen(
     onStartService: () -> Unit,
     onStopService: () -> Unit,
     onRequestAccessibility: () -> Unit,
-    onOpenAiKeyChange: (String) -> Unit,
-    onAnthropicKeyChange: (String) -> Unit,
     onStyleProfileChange: (String) -> Unit,
     onResetBudget: () -> Unit,
     onBudgetLimitChange: (Double) -> Unit
@@ -219,38 +201,15 @@ fun MainScreen(
         )
 
         if (allSetUp) {
-            val openAiValid = openAiKey.startsWith("sk-") && openAiKey.length > 10
-
             Spacer(Modifier.height(24.dp))
-            ApiKeyCard(
-                label = "OpenAI API-Key",
-                hint = "platform.openai.com → API keys",
-                placeholder = "sk-...",
-                apiKey = openAiKey,
-                isValid = openAiValid,
-                onApiKeyChange = onOpenAiKeyChange
-            )
+            ProfileCard(currentProfile = styleProfile, onProfileChange = onStyleProfileChange)
             Spacer(Modifier.height(12.dp))
-            ApiKeyCard(
-                label = "Anthropic API-Key (optional)",
-                hint = "Für Stil-Korrektur · console.anthropic.com → API keys",
-                placeholder = "sk-ant-...",
-                apiKey = anthropicKey,
-                isValid = anthropicKey.startsWith("sk-ant-") && anthropicKey.length > 10,
-                onApiKeyChange = onAnthropicKeyChange
+            BudgetCard(
+                spent = spent, budget = budget, remaining = remaining,
+                exceeded = budgetExceeded, onReset = onResetBudget,
+                onBudgetLimitChange = onBudgetLimitChange
             )
-            if (openAiValid) {
-                Spacer(Modifier.height(12.dp))
-                ProfileCard(currentProfile = styleProfile, onProfileChange = onStyleProfileChange)
-                Spacer(Modifier.height(12.dp))
-                BudgetCard(
-                    spent = spent, budget = budget, remaining = remaining,
-                    exceeded = budgetExceeded, onReset = onResetBudget,
-                    onBudgetLimitChange = onBudgetLimitChange
-                )
-            }
         }
-
     }
 }
 
@@ -385,64 +344,6 @@ fun BudgetCard(
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
-            }
-        }
-    }
-}
-
-@Composable
-fun ApiKeyCard(
-    label: String,
-    hint: String,
-    placeholder: String,
-    apiKey: String,
-    isValid: Boolean,
-    onApiKeyChange: (String) -> Unit
-) {
-    var showKey by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(label, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-            Text(
-                hint,
-                color = Color(0xFF8E8E93),
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
-            )
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = onApiKeyChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text(placeholder, color = Color(0xFF48484A)) },
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    TextButton(onClick = { showKey = !showKey }) {
-                        Text(
-                            if (showKey) "Verbergen" else "Anzeigen",
-                            color = Color(0xFF8E8E93),
-                            fontSize = 12.sp
-                        )
-                    }
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color(0xFF0A84FF),
-                    unfocusedBorderColor = Color(0xFF3A3A3C),
-                    cursorColor = Color(0xFF0A84FF)
-                ),
-                singleLine = true,
-                shape = RoundedCornerShape(10.dp)
-            )
-            if (isValid) {
-                Spacer(Modifier.height(6.dp))
-                Text("Key erkannt — aktiv", color = Color(0xFF30D158), fontSize = 12.sp)
             }
         }
     }
