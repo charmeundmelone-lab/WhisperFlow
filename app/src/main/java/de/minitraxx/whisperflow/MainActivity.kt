@@ -251,13 +251,6 @@ fun MainScreen(
             }
         }
 
-        Spacer(Modifier.height(32.dp))
-        Text(
-            "Milestone 6 von 8  ·  Status-Overlay + Stil-Profile + Budget-Limit",
-            fontSize = 12.sp,
-            color = Color(0xFF3A3A3C),
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
     }
 }
 

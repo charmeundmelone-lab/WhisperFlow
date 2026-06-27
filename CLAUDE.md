@@ -50,6 +50,7 @@ Zielgruppe: 1–2 Personen (Privatnutzung), primär auf Deutsch.
 - Datei: `app/keystore/debug.jks`
 - Passwort / Alias: `whisperflow`
 - Bewusst ins Repo committed (Privatnutzung, kein Sicherheitsproblem)
+- **Status: bestätigt funktionierend** — APK-Update-in-place getestet ✓
 - **Zweck:** Alle CI-Builds tragen die gleiche Signatur → APK-Updates installieren direkt
   über die Vorgängerversion, ohne zu deinstallieren → API-Keys bleiben in SharedPreferences erhalten
 - Konfiguriert in `app/build.gradle.kts` unter `signingConfigs { create("persistent") { ... } }`
@@ -115,17 +116,7 @@ Wurde versucht (Build #16) → Compile-Fehler. Diese Konstante gibt es in der An
 
 ## Offene Todos (priorisiert)
 
-### 1. Hardcoded "Milestone 6 von 8" Text entfernen
-**Datei:** `MainActivity.kt`, Zeile 256
-```kotlin
-Text(
-    "Milestone 6 von 8  ·  Status-Overlay + Stil-Profile + Budget-Limit",
-    ...
-)
-```
-Dieser Text ist veraltet und irreführend. Einfach die komplette `Text(...)`-Zeile + `Spacer(Modifier.height(32.dp))` darüber entfernen.
-
-### 2. EncryptedSharedPreferences für API-Keys
+### 1. EncryptedSharedPreferences für API-Keys
 Aktuell: plain `SharedPreferences`. Sicherer wäre Jetpack Security (`EncryptedSharedPreferences`).
 Für Privatnutzung auf einem nicht-gerooteten Gerät akzeptabel, aber technische Schuld.
 Dependency: `androidx.security:security-crypto:1.1.0-alpha06`
