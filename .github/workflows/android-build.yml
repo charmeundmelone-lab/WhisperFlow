@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ main, claude/android-project-setup-tqy5h9 ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -39,7 +39,7 @@ jobs:
           retention-days: 30
 
       - name: Push APK to apk-dist branch
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/android-project-setup-tqy5h9'
+        if: github.ref == 'refs/heads/main'
         run: |
           APK_FILE="app/build/outputs/apk/debug/app-debug.apk"
           SHORT_SHA=$(echo "${{ github.sha }}" | head -c 7)
