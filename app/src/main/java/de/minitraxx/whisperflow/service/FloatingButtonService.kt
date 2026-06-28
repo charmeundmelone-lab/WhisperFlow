@@ -119,6 +119,7 @@ class FloatingButtonService : Service() {
         const val KEY_LANGUAGE = "whisper_language"
         const val KEY_PREVIEW_ENABLED = "preview_enabled"
         const val KEY_EMOJI_LEVEL = "emoji_level"
+        const val KEY_HEADINGS_ENABLED = "headings_enabled"
         const val PROFILE_WHATSAPP = "whatsapp"
         const val PROFILE_PROFESSIONAL = "professional"
         const val PROFILE_FORMAL = "formal"
@@ -462,6 +463,7 @@ class FloatingButtonService : Service() {
         val currentProfile = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
         val currentEmoji = prefs.getString(KEY_EMOJI_LEVEL, EMOJI_FEW) ?: EMOJI_FEW
         val currentLang = prefs.getString(KEY_LANGUAGE, "") ?: ""
+        val headingsEnabled = prefs.getBoolean(KEY_HEADINGS_ENABLED, true)
 
         val sw = getScreenWidth()
         val onRightHalf = params.x + buttonSize / 2 > sw / 2
@@ -469,18 +471,19 @@ class FloatingButtonService : Service() {
         val baseAngleDeg = if (onRightHalf) 180.0 else 0.0
         val radiusPx = 90f * dp
 
-        // Top-to-bottom arc: Profil (upper), Emojis (middle), Sprache (lower).
+        // Top-to-bottom arc: Profil, Emojis, Sprache, Labels — evenly spaced 50° apart.
         // Offsets are flipped by side so the visual order stays consistent (Y is inverted in Android).
-        val angleOffsets = if (onRightHalf) listOf(-55.0, 0.0, 55.0) else listOf(55.0, 0.0, -55.0)
+        val angleOffsets = if (onRightHalf) listOf(-75.0, -25.0, 25.0, 75.0) else listOf(75.0, 25.0, -25.0, -75.0)
         val containerWidth = (72 * dp).toInt()
         val circleSize = (52 * dp).toInt()
         val btnCX = params.x + buttonSize / 2
         val btnCY = params.y + buttonSize / 2
 
         val items = listOf(
-            Triple("Profil",   profileDisplayValue(currentProfile), 0),
-            Triple("Emojis",   emojiDisplayValue(currentEmoji),     1),
-            Triple("Sprache",  langDisplayValue(currentLang),       2)
+            Triple("Profil",   profileDisplayValue(currentProfile),     0),
+            Triple("Emojis",   emojiDisplayValue(currentEmoji),         1),
+            Triple("Sprache",  langDisplayValue(currentLang),           2),
+            Triple("Labels",   headingsDisplayValue(headingsEnabled),   3)
         )
 
         items.forEachIndexed { idx, (label, value, _) ->
@@ -613,6 +616,11 @@ class FloatingButtonService : Service() {
                     prefs.edit().putString(KEY_LANGUAGE, next).apply()
                     menuValueViews.getOrNull(2)?.text = langDisplayValue(next)
                 }
+                3 -> {
+                    val next = !prefs.getBoolean(KEY_HEADINGS_ENABLED, true)
+                    prefs.edit().putBoolean(KEY_HEADINGS_ENABLED, next).apply()
+                    menuValueViews.getOrNull(3)?.text = headingsDisplayValue(next)
+                }
             }
         }
     }
@@ -658,6 +666,8 @@ class FloatingButtonService : Service() {
         "en" -> "EN"
         else -> "🌐"
     }
+
+    private fun headingsDisplayValue(enabled: Boolean) = if (enabled) "AN" else "AUS"
 
     // ── Touch listener ─────────────────────────────────────────────────────────
 
@@ -1054,6 +1064,7 @@ class FloatingButtonService : Service() {
         val profile = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
         val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
         val emojiLevel = prefs.getString(KEY_EMOJI_LEVEL, EMOJI_FEW) ?: EMOJI_FEW
+        val headingsEnabled = prefs.getBoolean(KEY_HEADINGS_ENABLED, true)
         val previewEnabled = prefs.getBoolean(KEY_PREVIEW_ENABLED, false)
 
         if (openAiKey.isBlank()) {
@@ -1092,7 +1103,7 @@ class FloatingButtonService : Service() {
                 else                 -> "WhatsApp"
             }
             showStatus("Korrigiere [$profileLabel]...", Color.parseColor("#8E8E93"))
-            val systemPrompt = StylePrompts.get(effectiveProfile, emojiLevel)
+            val systemPrompt = StylePrompts.get(effectiveProfile, emojiLevel, headingsEnabled)
             CostTracker.recordClaude(this)
             ClaudeClient.correct(transcription, systemPrompt, anthropicKey)
                 .getOrDefault(transcription)

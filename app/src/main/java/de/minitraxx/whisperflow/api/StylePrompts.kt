@@ -2,20 +2,27 @@ package de.minitraxx.whisperflow.api
 
 object StylePrompts {
 
-    fun get(profile: String, emojiLevel: String): String {
+    fun get(profile: String, emojiLevel: String, headingsEnabled: Boolean = false): String {
         val emojiLine = when (emojiLevel) {
             "none" -> "Emojis: Verwende keine Emojis."
             "many" -> "Emojis: Mindestens 5, gerne bis zu 8 — richtig mutig! Mitten im Satz, am Ende, als Stimmungsverstärker oder visueller Akzent. Lieber einen zu viel als zu zögerlich. 🔥🎉"
             else  -> "Emojis: Maximal 1–2, nur wo der Sprecher es wohl so gemeint hat — sonst keins."
         }
+        val headingsLine = when {
+            !headingsEnabled || profile == "whatsapp" -> ""
+            profile == "professional" ->
+                "Abschnitts-Labels: Wenn klar verschiedene Blöcke erkennbar sind, passende Labels voranstellen — z. B. \"Betreff:\", \"Zusammenfassung:\", \"Nächste Schritte:\", \"Hinweis:\", \"Fazit:\" — als eigene Zeile. Nur wenn sie sich natürlich ergeben, nie erzwingen."
+            else ->
+                "Abschnitts-Labels voranstellen wenn der Sprecher klar verschiedene Blöcke anspricht — z. B. \"Betreff:\", \"Sachverhalt:\", \"Bitte:\", \"Hinweis:\", \"Fazit:\" — als eigene Zeile vor dem jeweiligen Abschnitt. Nur einsetzen wenn sie sich natürlich aus dem Inhalt ergeben, nie erzwingen."
+        }
         return when (profile) {
-            "professional" -> professional(emojiLine)
-            "formal"       -> formal(emojiLine)
-            else           -> whatsapp(emojiLine)
+            "professional" -> professional(emojiLine, headingsLine)
+            "formal"       -> formal(emojiLine, headingsLine)
+            else           -> whatsapp(emojiLine, headingsLine)
         }
     }
 
-    private fun whatsapp(emojiLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text bereinigen und direkt zurückgeben.
+    private fun whatsapp(emojiLine: String, headingsLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text bereinigen und direkt zurückgeben.
 
 Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus — ohne die Tags.
 
@@ -25,7 +32,7 @@ Was du tust:
 - Füllwörter entfernen (äh, ähm, halt, ne, quasi, sozusagen, irgendwie, also)
 - Versprecher, Wort-Wiederholungen und wiederholte Gedanken entfernen — auch wenn derselbe Gedanke leicht abgewandelt nochmal kommt
 - Grammatik und Zeichensetzung korrigieren
-- Absätze setzen wo ein neuer Gedanke beginnt — bei längeren Texten lieber mehr als weniger: spätestens alle 3 Sätze einen Absatz
+- Absätze setzen wo ein neuer Gedanke beginnt — bei längeren Texten lieber mehr als weniger: spätestens alle 3 Sätze einen Absatz${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
 Was du NICHT tust:
 - Wortwahl oder Satzbau des Sprechers verändern
@@ -37,7 +44,7 @@ $emojiLine
 Sprache: automatisch Deutsch oder Englisch erkennen und entsprechend korrigieren
 Ausgabe: NUR der bereinigte Text — absolut nichts anderes"""
 
-    private fun professional(emojiLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für professionelle Geschäftskommunikation bereinigen und direkt zurückgeben.
+    private fun professional(emojiLine: String, headingsLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für professionelle Geschäftskommunikation bereinigen und direkt zurückgeben.
 
 Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus — ohne die Tags.
 
@@ -47,7 +54,7 @@ Was du tust:
 - Füllwörter entfernen (äh, ähm, halt, quasi, sozusagen, irgendwie, also)
 - Versprecher und direkte Wiederholungen entfernen
 - Grammatik und Zeichensetzung präzise setzen
-- Klare Absatzstruktur herstellen — bei längeren Texten lieber mehr Absätze: spätestens alle 3 Sätze einen Absatz
+- Klare Absatzstruktur herstellen — bei längeren Texten lieber mehr Absätze: spätestens alle 3 Sätze einen Absatz${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
 Was du NICHT tust:
 - Wortwahl oder Satzbau des Sprechers verändern
@@ -60,7 +67,7 @@ $emojiLine
 Sprache: automatisch Deutsch oder Englisch erkennen
 Ausgabe: NUR der bereinigte Text — absolut nichts anderes"""
 
-    private fun formal(emojiLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für formelle Schreiben bereinigen und direkt zurückgeben.
+    private fun formal(emojiLine: String, headingsLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für formelle Schreiben bereinigen und direkt zurückgeben.
 
 Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus — ohne die Tags.
 
@@ -72,8 +79,7 @@ Was du tust:
 - Vollständige, klar strukturierte Sätze herstellen
 - Abkürzungen ausschreiben (z.B. → zum Beispiel)
 - Umgangssprachliche Ausdrücke in formelle Entsprechungen überführen
-- Klare Absätze setzen: jeder thematische Wechsel bekommt einen eigenen Absatz (Leerzeile dazwischen)
-- Passende Abschnitts-Labels voranstellen wenn der Sprecher klar verschiedene Blöcke anspricht — z. B. "Betreff:", "Sachverhalt:", "Bitte:", "Hinweis:", "Fazit:" — als eigene Zeile vor dem jeweiligen Abschnitt. Nur einsetzen wenn sie sich natürlich aus dem Inhalt ergeben, nie erzwingen.
+- Klare Absätze setzen: jeder thematische Wechsel bekommt einen eigenen Absatz (Leerzeile dazwischen)${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
 Was du NICHT tust:
 - Inhalt oder Aussage des Sprechers verändern
