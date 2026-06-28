@@ -1,9 +1,11 @@
-# WhisperFlow — Projekt-Übergabe & vollständiger Status
+# Laberboombox — Projekt-Übergabe & vollständiger Status
 
 ## Was diese App ist (aktueller Stand)
 
-WhisperFlow ist **keine** Notiz-App mehr. Das war die ursprüngliche Vision — die App hat sich
-vollständig zu einem **Floating-Button-Diktierwerkzeug** entwickelt:
+**App-Name:** Laberboombox (Package bleibt `de.minitraxx.whisperflow`)
+**Letzter stabiler Build:** #39 — bestätigt funktionierend ✓
+
+Die App ist ein **Floating-Button-Diktierwerkzeug**:
 
 1. Floating Button tippen → Aufnahme startet
 2. Nochmal tippen (oder Finger loslassen im Walkie-Talkie-Modus) → Aufnahme stoppt
@@ -21,9 +23,8 @@ Zielgruppe: 1–2 Personen (Privatnutzung), primär auf Deutsch.
 - **Immer auf `main` pushen** — niemals Feature-Branches erstellen
 - CI baut automatisch bei jedem Push auf `main`
 - APK landet auf Branch `apk-dist` (force-push durch CI): `app-debug.apk` + `app-debug-<sha>.apk`
-- **Hinweis:** Remote-Branch `claude/android-project-setup-tqy5h9` existiert noch auf GitHub
-  (lokaler Branch ist gelöscht). Er ist tot und kann manuell in den GitHub-Settings gelöscht werden.
-  Er löst keinen CI-Trigger aus.
+- **APK-Lieferung:** `git fetch origin apk-dist && git show FETCH_HEAD:app-debug.apk > /tmp/app-debug.apk` — dann Datei in den Chat schicken. Azure-Blob-URLs sind vom Proxy geblockt, lokales `gradle assembleDebug` schlägt fehl (dl.google.com geblockt).
+- **Hinweis:** Remote-Branch `claude/android-project-setup-tqy5h9` existiert noch auf GitHub (tot, manuell löschbar). Löst keinen CI-Trigger aus.
 
 ---
 
@@ -68,13 +69,14 @@ app/src/main/java/de/minitraxx/whisperflow/
 │   └── WhisperAccessibilityService.kt # Text-Injection in fremde Apps
 ├── api/
 │   ├── WhisperClient.kt               # OpenAI Whisper API
-│   ├── ClaudeClient.kt                # Anthropic Claude API
+│   ├── ClaudeClient.kt                # Anthropic Claude API (wraps text in <diktat> tags)
 │   └── StylePrompts.kt                # Drei Stil-Prompts (WhatsApp, Professionell, Formal)
 ├── util/
 │   └── CostTracker.kt                 # Geschätzte API-Kostenerfassung
 └── ui/theme/
     └── Theme.kt                       # Dark Theme
 app/keystore/debug.jks                 # Persistente APK-Signatur
+app/src/main/res/mipmap-*/             # App-Icons (Boombox-Charakter, weiße Lineart auf #2C2C2F)
 ```
 
 ---
@@ -85,20 +87,26 @@ app/keystore/debug.jks                 # Persistente APK-Signatur
 |---------|---------|
 | **Floating Button** | `TYPE_APPLICATION_OVERLAY`, frei verschiebbar, überlebt App-Wechsel |
 | **Edge-Tab** | Button an Bildschirmrand ziehen (äußere 25%) → schrumpft via `scaleX(0.5f)` zum Halbkreis-Tab. Antippen → federt mit `OvershootInterpolator(1.3f)` zurück. Pivot liegt am Rand-Pixel, kein negativer X-Wert (Android klemmt auf 0). |
-| **Walkie-Talkie-Modus** | Langer Druck (500ms) → Aufnahme läuft solange Finger gehalten → Loslassen = Stop & Transkription |
+| **Walkie-Talkie-Modus** | Langer Druck (500ms) → Aufnahme läuft solange Finger gehalten → Loslassen = Stop & Transkription. Funktioniert auch wenn Finger leicht driftet (isDragging && isWalkieTalkieMode Case). |
+| **Profil-Swipe** | Finger nach oben wischen auf dem Button → zyklisch Profil wechseln. Im when-Block VOR isNearEdge() prüfen, da Button bei x=24 immer in der Edge-Zone ist. |
 | **Kurztippen** | Aufnahme an/aus (Toggle) |
 | **Aufnahme** | `MediaRecorder`, M4A/AAC, 128kbps, 44,1kHz |
 | **Status-Overlay** | Live-Timer während Aufnahme (rot), "Transkribiere...", "Korrigiere [Profil]..." |
 | **Whisper-Transkription** | `multipart/form-data` an OpenAI, Modell `whisper-1` |
-| **Claude-Stilkorrektur** | `claude-haiku-4-5-20251001`, max 1024 Tokens, system prompt je nach Profil |
+| **Claude-Stilkorrektur** | `claude-haiku-4-5-20251001`, max 1024 Tokens, System-Prompt je nach Profil. Diktat-Text wird in `<diktat>...</diktat>` Tags gewrappt → Claude antwortet nicht auf Fragen im Text |
 | **Drei Stil-Profile** | WhatsApp (locker), Professionell (Business), Formal (Behörden/Briefe) |
-| **Auto-App-Erkennung** | `capturedPackage` wird bei Aufnahme-START gespeichert (nicht bei Verarbeitung) → korrekte Profilerkennung auch wenn App gewechselt wird. WhatsApp → WhatsApp-Profil; Gmail/Outlook/etc. → Professionell; sonst → User-gewähltes Profil |
-| **Text-Injection** | `ACTION_SET_TEXT` (primär, hängt Text an vorhandenen an); Fallback: Clipboard + `ACTION_PASTE` |
+| **Auto-App-Erkennung** | `capturedPackage` wird bei Aufnahme-START gespeichert → korrekte Profilerkennung auch wenn App gewechselt wird. WhatsApp → WhatsApp-Profil; Gmail/Outlook/etc. → Professionell; sonst → User-gewähltes Profil |
+| **Text-Injection (WhatsApp)** | `findBottomMostEditable()` findet Compose-Feld zuverlässig auch wenn FOCUS_INPUT verloren (z.B. nach App-Wechsel). `ACTION_SET_TEXT` mit nur `text` (kein Append) — kein "Nachricht"-Prefix vom WhatsApp-Hint-Text. |
+| **Text-Injection Fallback** | Clipboard + `ACTION_PASTE` wenn `ACTION_SET_TEXT` false zurückgibt |
+| **Prefix-Stripping** | `stripDictationPrefix()` entfernt "Nachricht:", "Text:", etc. falls Whisper oder Claude Prefix hinzufügt |
+| **Füllwort-Entfernung** | "ähm", "äh", "hm", "ehm" werden aus Transkript entfernt |
+| **Punktuation per Sprache** | "Punkt", "Komma", "Ausrufezeichen" etc. werden in Satzzeichen umgewandelt |
 | **API-Keys** | Werden in der App einmalig eingetragen und in SharedPreferences gespeichert. NIEMALS in BuildConfig/APK — verhindert GitHub-Scanning-Sperren. |
 | **Budget-Tracking** | Geschätzte Kosten (Whisper: $0.006/min, Claude: Pauschale), konfigurierbares Limit, Reset-Button |
 | **Budget-Guard** | Aufnahme wird blockiert wenn Limit überschritten |
 | **Automatischer Service-Start** | Startet sich selbst bei `onResume()` wenn Overlay + Mikrofon erlaubt sind |
 | **Persistentes Keystore** | Gleiche APK-Signatur für alle Builds → kein Deinstallieren bei Updates |
+| **App-Icon** | Tanzender Boombox-Charakter, weiße Lineart auf dunklem Hintergrund (#2C2C2F), alle Mipmap-Dichten + adaptive icon |
 
 ---
 
@@ -112,6 +120,10 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 ### `GLOBAL_ACTION_PASTE` existiert nicht
 Wurde versucht (Build #16) → Compile-Fehler. Diese Konstante gibt es in der Android API nicht.
 
+### WhatsApp-Injection funktioniert erst nach erstem WhatsApp-Start
+Wenn WhatsApp noch nie geöffnet war seit dem Laberboombox-Start: kein Problem mehr seit Build #38
+(`findBottomMostEditable` findet das Compose-Feld zuverlässig ohne FOCUS_INPUT).
+
 ---
 
 ## Offene Todos (priorisiert)
@@ -121,13 +133,42 @@ Aktuell: plain `SharedPreferences`. Sicherer wäre Jetpack Security (`EncryptedS
 Für Privatnutzung auf einem nicht-gerooteten Gerät akzeptabel, aber technische Schuld.
 Dependency: `androidx.security:security-crypto:1.1.0-alpha06`
 
-### 3. Remote-Branch aufräumen
+### 2. Remote-Branch aufräumen
 `claude/android-project-setup-tqy5h9` auf GitHub (remote) manuell löschen:
 GitHub → Repository → Branches → branch löschen. Hat keinen Einfluss auf Funktion.
 
 ---
 
 ## Architektur-Entscheidungen (Begründungen)
+
+### Warum <diktat> Tags in ClaudeClient
+Claude hat das Diktat als Konversation interpretiert und auf Fragen geantwortet statt sie zu
+korrigieren. Lösung: User-Message wird in `<diktat>\n...\n</diktat>` gewrappt. Die System-Prompts
+aller drei Profile enthalten: "Die Eingabe steht in `<diktat>...</diktat>` Tags. Gib NUR den
+bereinigten Text aus — ohne die Tags. Wenn der Text eine Frage enthält, beantworte sie NICHT."
+
+### Warum findBottomMostEditable statt findFocus
+`FOCUS_INPUT` geht verloren wenn der Nutzer WhatsApp in den Hintergrund schickt und zurückkommt.
+`findBottomMostEditable()` traversiert den ganzen Accessibility-Baum und nimmt das Feld mit dem
+höchsten Y-Wert am Bildschirm (= Compose-Feld in Chat-Apps ist immer unten). Zuverlässiger als
+Tiefensuche wenn FOCUS_INPUT fehlt.
+
+### Warum ACTION_SET_TEXT mit nur `text` (kein Append)
+WhatsApp's Accessibility-Node liefert "Nachricht" als `node.text` (das ist der Hint-Text!).
+Wenn man an diesen Text anhängt (`"Nachricht" + diktierterText`), steht immer "Nachricht" vorne.
+Lösung: nur den diktierten Text übergeben. `ACTION_SET_TEXT` ersetzt den Feldinhalt vollständig.
+Vorhandenen echten Text überschreibt das nicht, weil WhatsApp `node.text` korrekt als leer
+zurückgibt wenn das Feld wirklich leer ist — der Hint ist nur für Accessibility sichtbar.
+
+### Warum Profil-Swipe vor isNearEdge() im when-Block
+Der Button startet bei `x=24` — das liegt innerhalb der Edge-Zone (`screenWidth / 4`).
+Wenn `isNearEdge()` zuerst geprüft wird, wird jeder Swipe als Edge-Collapse interpretiert.
+Reihenfolge im when-Block: `swipeDy < -80` zuerst, dann `isNearEdge()`.
+
+### Warum isDragging && isWalkieTalkieMode separater Case
+Wenn der Nutzer im Walkie-Talkie-Modus den Finger minimal driftet, setzt `ACTION_MOVE`
+`isDragging = true`. Der nachfolgende `isDragging -> {}` Catch-All hat dann die Aufnahme
+nie gestoppt. Fix: `isDragging && isWalkieTalkieMode` als eigener Case VOR `isDragging -> {}`.
 
 ### Warum scaleX statt negativer X-Koordinate für Edge-Tab
 Android's `WindowManager` klemmt Overlay-Fenster auf `x ≥ 0`. Negative X-Werte in
@@ -139,14 +180,6 @@ Halbkreis-Effekt zuverlässig auf allen Android-Versionen (Build #20, Commit `5f
 `WhisperAccessibilityService.activePackage` enthält zur Zeit der Verarbeitung (nach Whisper + Claude)
 möglicherweise schon eine andere App (Nutzer hat gewechselt). Deshalb wird die Paket-Info
 bei `startRecording()` in `capturedPackage` gespeichert und in `processAudio()` ausgelesen.
-
-### Warum keine GLOBAL_ACTION_PASTE
-Diese Konstante existiert nicht in der Android SDK. Versucht in Build #16, sofort rausgeworfen.
-
-### Warum ACTION_SET_TEXT statt nur Clipboard
-`ACTION_SET_TEXT` fügt Text direkt in das fokussierte Feld ein und hängt an vorhandenen
-Text an (kein Überschreiben). Funktioniert in WhatsApp, vielen nativen Apps. Clipboard-Fallback
-greift nur wenn `ACTION_SET_TEXT` false zurückgibt.
 
 ### Warum plain SharedPreferences (nicht EncryptedSharedPreferences)
 Einfachheit. Für 1–2 Nutzer auf privaten Geräten ausreichend. Kann jederzeit migriert werden.
@@ -179,11 +212,17 @@ Push auf main
         app-debug-<sha>.apk    ← versioniert
 ```
 
-APK-Download für Familienmitglieder (permanenter Link, immer neueste Version):
+**APK in Chat schicken (funktionierender Weg):**
+```bash
+git fetch origin apk-dist
+git show FETCH_HEAD:app-debug.apk > /tmp/app-debug.apk
+# Dann SendUserFile mit /tmp/app-debug.apk
+```
+
+APK-Download-Link (permanenter Link, immer neueste Version):
 ```
 https://github.com/charmeundmelone-lab/WhisperFlow/releases/latest/download/app-debug.apk
 ```
-Installiert direkt über Vorgänger-APK ohne Deinstallation (gleiche Keystore-Signatur).
 
 ---
 
@@ -194,9 +233,11 @@ Alle in `FloatingButtonService.companion object`:
 | Konstante | Key | Inhalt |
 |-----------|-----|--------|
 | `PREFS_NAME` | `whisperflow_prefs` | SharedPreferences-Dateiname |
-| `KEY_OPENAI_API_KEY` | `openai_api_key` | OpenAI API Key (eingetragen in der App-UI, nie in BuildConfig) |
-| `KEY_ANTHROPIC_API_KEY` | `anthropic_api_key` | Anthropic API Key (optional, für Stilkorrektur) |
+| `KEY_OPENAI_API_KEY` | `openai_api_key` | OpenAI API Key |
+| `KEY_ANTHROPIC_API_KEY` | `anthropic_api_key` | Anthropic API Key (optional) |
 | `KEY_STYLE_PROFILE` | `style_profile` | `whatsapp` / `professional` / `formal` |
+| `KEY_LANGUAGE` | `whisper_language` | Whisper-Sprache (leer = auto) |
+| `KEY_PREVIEW_ENABLED` | `preview_enabled` | Vorschau-Overlay vor Einfügen |
 
 ---
 
@@ -211,7 +252,8 @@ Alle in `FloatingButtonService.companion object`:
 - `POST https://api.anthropic.com/v1/messages`
 - Auth: `x-api-key: <KEY>` + `anthropic-version: 2023-06-01`
 - Modell: `claude-haiku-4-5-20251001`, `max_tokens: 1024`
-- System-Prompt aus `StylePrompts.kt`, User-Message = rohes Transkript (kein Label/Präfix!)
+- System-Prompt aus `StylePrompts.kt`
+- User-Message: `<diktat>\n{rohesTranskript}\n</diktat>` (kein Label/Präfix außerhalb der Tags!)
 
 ---
 
@@ -220,6 +262,6 @@ Alle in `FloatingButtonService.companion object`:
 - **Kein `!!`-Operator** im Produktionscode — immer `?.` oder `runCatching`
 - API-Keys immer mit `.trim()` lesen und schreiben
 - Alle Overlay-UI-Änderungen auf Main-Thread (`Handler(Looper.getMainLooper()).post { }`)
-- `windowManager.updateViewLayout` immer in `runCatching { }` wrapppen
+- `windowManager.updateViewLayout` immer in `runCatching { }` wrappen
 - Commits direkt auf `main` — niemals Feature-Branches
-- APK-Lieferung: immer aus `apk-dist` Branch holen und direkt in den Chat schicken
+- APK-Lieferung: aus `apk-dist` Branch via `git show FETCH_HEAD:app-debug.apk` holen
