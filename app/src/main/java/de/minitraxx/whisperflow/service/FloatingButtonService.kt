@@ -6,7 +6,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Typeface
@@ -79,6 +82,10 @@ class FloatingButtonService : Service() {
     private val amplitudeHandler = Handler(Looper.getMainLooper())
     private val amplitudeHistory = ArrayDeque<Float>()
 
+    private val boomHandler = Handler(Looper.getMainLooper())
+    private var boomView: View? = null
+    private var isBoomPending = false
+
     // ── Radial menu state ──────────────────────────────────────────────────────
     private var menuActive = false
     private val menuViews = mutableListOf<View>()
@@ -102,6 +109,8 @@ class FloatingButtonService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "whisperflow_service"
         private const val LONG_PRESS_MS = 500L
+        private const val MAX_RECORDING_SECONDS = 90
+        private const val BOOM_WARNING_SECS = 10
 
         const val PREFS_NAME = "whisperflow_prefs"
         const val KEY_OPENAI_API_KEY = "openai_api_key"
@@ -156,6 +165,9 @@ class FloatingButtonService : Service() {
         }
         stopPulseRing()
         hidePreviewOverlay()
+        boomHandler.removeCallbacksAndMessages(null)
+        runCatching { boomView?.let { windowManager.removeView(it) } }
+        boomView = null
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
         runCatching { statusView?.let { windowManager.removeView(it) } }
         statusView = null
@@ -289,6 +301,13 @@ class FloatingButtonService : Service() {
                 WAVE_CHARS[(a * (WAVE_CHARS.size - 1)).toInt().coerceIn(0, WAVE_CHARS.size - 1)].toString()
             }.padEnd(7, '▁')
             recLabelView?.text = "$wave  $time"
+            val secsLeft = MAX_RECORDING_SECONDS - recordingSeconds
+            if (secsLeft <= BOOM_WARNING_SECS) {
+                val blink = (System.currentTimeMillis() / 400) % 2 == 0L
+                recLabelView?.setTextColor(if (blink) Color.parseColor("#FF3B30") else Color.parseColor("#FF9500"))
+            } else {
+                recLabelView?.setTextColor(Color.WHITE)
+            }
             amplitudeHandler.postDelayed(this, 120)
         }
     }
@@ -297,6 +316,10 @@ class FloatingButtonService : Service() {
         override fun run() {
             if (!isRecording) return
             recordingSeconds++
+            if (recordingSeconds >= MAX_RECORDING_SECONDS) {
+                triggerBoomStop()
+                return
+            }
             timerHandler.postDelayed(this, 1000)
         }
     }
@@ -697,6 +720,7 @@ class FloatingButtonService : Service() {
     // ── Recording ─────────────────────────────────────────────────────────────
 
     private fun toggleRecording() {
+        if (isBoomPending) return
         if (isRecording) stopRecording(transcribe = true) else startRecording()
     }
 
@@ -807,6 +831,160 @@ class FloatingButtonService : Service() {
         showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
         CostTracker.recordAudio(durationMs / 1000L, this)
         serviceScope.launch { processAudio(file) }
+    }
+
+    // ── BOOM! auto-stop at 90 seconds ─────────────────────────────────────────
+
+    private fun triggerBoomStop() {
+        if (!isRecording || isBoomPending) return
+        val durationMs = (System.currentTimeMillis() - recordingStartTime).coerceAtLeast(0)
+        runCatching { mediaRecorder?.apply { stop(); release() } }
+        mediaRecorder = null
+        isRecording = false
+        isBoomPending = true
+        timerHandler.removeCallbacks(timerRunnable)
+        amplitudeHandler.removeCallbacks(amplitudeRunnable)
+        amplitudeHistory.clear()
+
+        val file = lastRecordingFile
+        lastRecordingFile = null
+
+        hideStatus()
+        showBoomOverlay()
+
+        boomHandler.postDelayed({
+            isBoomPending = false
+            hideBoomOverlay()
+
+            buttonView.removeView(recLabelView)
+            recLabelView = null
+            micIconView.alpha = 1f
+            micIconView.visibility = View.VISIBLE
+            applyIdleStyle()
+            buttonView.animate().cancel()
+            buttonView.scaleX = 1f
+            buttonView.scaleY = 1f
+            stopPulseRing()
+            ValueAnimator.ofInt(params.width, buttonSize).apply {
+                duration = 180
+                interpolator = DecelerateInterpolator()
+                addUpdateListener {
+                    params.width = it.animatedValue as Int
+                    runCatching { windowManager.updateViewLayout(buttonView, params) }
+                }
+                start()
+            }
+
+            if (file == null || durationMs < 300) {
+                file?.delete()
+                hideStatus()
+                return@postDelayed
+            }
+
+            showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
+            CostTracker.recordAudio(durationMs / 1000L, this@FloatingButtonService)
+            serviceScope.launch { processAudio(file) }
+        }, 1500)
+    }
+
+    private fun showBoomOverlay() {
+        hideBoomOverlay()
+        val dp = resources.displayMetrics.density
+        val size = (180 * dp).toInt()
+
+        val bv = object : View(this@FloatingButtonService) {
+            private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = Color.parseColor("#FFD60A")
+            }
+            private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 3f * dp
+                color = Color.parseColor("#CC7A00")
+            }
+            private val textOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+                strokeJoin = Paint.Join.ROUND
+                color = Color.parseColor("#660000")
+            }
+            private val textFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+                color = Color.parseColor("#FF2200")
+            }
+            private val burstPath = Path()
+
+            override fun onDraw(canvas: Canvas) {
+                val cx = width / 2f
+                val cy = height / 2f
+                val outerR = width / 2f * 0.90f
+                val innerR = width / 2f * 0.58f
+                val points = 16
+
+                burstPath.reset()
+                for (i in 0 until points * 2) {
+                    val angle = (Math.PI * i / points - Math.PI / 2).toFloat()
+                    val r = if (i % 2 == 0) outerR else innerR
+                    val x = cx + r * cos(angle)
+                    val y = cy + r * sin(angle)
+                    if (i == 0) burstPath.moveTo(x, y) else burstPath.lineTo(x, y)
+                }
+                burstPath.close()
+
+                canvas.drawPath(burstPath, fillPaint)
+                canvas.drawPath(burstPath, strokePaint)
+
+                val textSize = width * 0.28f
+                textOutlinePaint.textSize = textSize
+                textOutlinePaint.strokeWidth = 5f * dp
+                textFillPaint.textSize = textSize
+
+                val textY = cy - (textFillPaint.ascent() + textFillPaint.descent()) / 2f
+                canvas.drawText("BOOM!", cx, textY, textOutlinePaint)
+                canvas.drawText("BOOM!", cx, textY, textFillPaint)
+            }
+        }
+
+        val sw = getScreenWidth()
+        val bx = (params.x + params.width / 2 - size / 2).coerceIn(0, sw - size)
+        val by = (params.y + buttonSize / 2 - size / 2).coerceAtLeast(4)
+
+        val bp = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = bx
+            y = by
+        }
+
+        boomView = bv
+        windowManager.addView(bv, bp)
+
+        bv.scaleX = 0.2f
+        bv.scaleY = 0.2f
+        bv.alpha = 0f
+        bv.animate()
+            .scaleX(1f).scaleY(1f).alpha(1f)
+            .setDuration(280)
+            .setInterpolator(OvershootInterpolator(1.8f))
+            .start()
+    }
+
+    private fun hideBoomOverlay() {
+        val v = boomView ?: return
+        boomView = null
+        v.animate().cancel()
+        v.animate()
+            .scaleX(0.1f).scaleY(0.1f).alpha(0f)
+            .setDuration(200)
+            .withEndAction { runCatching { windowManager.removeView(v) } }
+            .start()
     }
 
     // ── Pulse ring ────────────────────────────────────────────────────────────
