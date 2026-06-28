@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Point
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaRecorder
 import android.os.Build
@@ -34,6 +35,8 @@ import de.minitraxx.whisperflow.util.CostTracker
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 class FloatingButtonService : Service() {
 
@@ -44,17 +47,18 @@ class FloatingButtonService : Service() {
     private lateinit var params: WindowManager.LayoutParams
 
     private var isRecording = false
-    private var isWalkieTalkieMode = false
     private var initialX = 0
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var touchDownTime = 0L
     private var isDragging = false
+    private var menuClosedByDown = false
     private var recordingStartTime = 0L
 
     private var isEdgeCollapsed = false
     private var collapsedOnLeft = false
+    private var preCollapseY = 0
     private var buttonSize = 0
 
     private var mediaRecorder: MediaRecorder? = null
@@ -75,13 +79,19 @@ class FloatingButtonService : Service() {
     private val amplitudeHandler = Handler(Looper.getMainLooper())
     private val amplitudeHistory = ArrayDeque<Float>()
 
+    // ── Radial menu state ──────────────────────────────────────────────────────
+    private var menuActive = false
+    private val menuViews = mutableListOf<View>()
+    private val menuValueViews = mutableListOf<TextView>()
+    private val menuCloseHandler = Handler(Looper.getMainLooper())
+    private val menuCloseRunnable = Runnable { if (menuActive) closeRadialMenu() }
+
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val longPressHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable {
         if (!isDragging && !isRecording && !isEdgeCollapsed) {
-            isWalkieTalkieMode = true
-            startRecording()
+            openRadialMenu()
         }
     }
 
@@ -99,9 +109,13 @@ class FloatingButtonService : Service() {
         const val KEY_STYLE_PROFILE = "style_profile"
         const val KEY_LANGUAGE = "whisper_language"
         const val KEY_PREVIEW_ENABLED = "preview_enabled"
+        const val KEY_EMOJI_LEVEL = "emoji_level"
         const val PROFILE_WHATSAPP = "whatsapp"
         const val PROFILE_PROFESSIONAL = "professional"
         const val PROFILE_FORMAL = "formal"
+        const val EMOJI_NONE = "none"
+        const val EMOJI_FEW = "few"
+        const val EMOJI_MANY = "many"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, FloatingButtonService::class.java))
@@ -129,10 +143,17 @@ class FloatingButtonService : Service() {
     override fun onDestroy() {
         isRunning = false
         longPressHandler.removeCallbacks(longPressRunnable)
+        menuCloseHandler.removeCallbacksAndMessages(null)
         timerHandler.removeCallbacksAndMessages(null)
         amplitudeHandler.removeCallbacksAndMessages(null)
         serviceScope.cancel()
         if (isRecording) stopRecording(transcribe = false)
+        if (menuActive) {
+            menuViews.forEach { runCatching { windowManager.removeView(it) } }
+            menuViews.clear()
+            menuValueViews.clear()
+            menuActive = false
+        }
         stopPulseRing()
         hidePreviewOverlay()
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
@@ -150,6 +171,8 @@ class FloatingButtonService : Service() {
         else {
             val p = Point(); windowManager.defaultDisplay.getSize(p); p.x
         }
+
+    private fun lerp(a: Int, b: Int, t: Float) = (a + (b - a) * t).toInt()
 
     // ── Floating button setup ──────────────────────────────────────────────────
 
@@ -305,15 +328,24 @@ class FloatingButtonService : Service() {
         buttonView.elevation = 18f * dp
     }
 
-    private fun applyEdgeTabStyle() {
+    private fun applyEdgeTabStyle(onLeft: Boolean) {
         val dp = resources.displayMetrics.density
+        val r = 9f * dp
         buttonView.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            colors = intArrayOf(Color.parseColor("#1E1E30"), Color.parseColor("#0D0D1A"))
-            orientation = GradientDrawable.Orientation.TL_BR
-            setStroke((1.5f * dp).toInt(), Color.parseColor("#3A3A6E"))
+            shape = GradientDrawable.RECTANGLE
+            // cornerRadii order: [TL, TL, TR, TR, BR, BR, BL, BL]
+            cornerRadii = if (onLeft) {
+                // Left edge: flat left side, rounded right side
+                floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+            } else {
+                // Right edge: rounded left side, flat right side
+                floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
+            }
+            colors = intArrayOf(Color.parseColor("#FFD60A"), Color.parseColor("#F5A800"))
+            orientation = GradientDrawable.Orientation.TOP_BOTTOM
         }
-        buttonView.elevation = 4f * dp
+        buttonView.elevation = 8f * dp
+        buttonView.alpha = 0.92f
     }
 
     // ── Edge-Tab logic ─────────────────────────────────────────────────────────
@@ -325,61 +357,282 @@ class FloatingButtonService : Service() {
     }
 
     private fun collapseToEdge() {
+        val dp = resources.displayMetrics.density
         val sw = getScreenWidth()
         collapsedOnLeft = params.x + buttonSize / 2 < sw / 2
         isEdgeCollapsed = true
+        preCollapseY = params.y
 
-        val targetX = if (collapsedOnLeft) 0 else sw - buttonSize
-        buttonView.pivotX = if (collapsedOnLeft) 0f else buttonSize.toFloat()
-        buttonView.pivotY = buttonSize / 2f
+        val stripW = (10 * dp).toInt()
+        val stripH = (60 * dp).toInt()
+        val targetX = if (collapsedOnLeft) 0 else sw - stripW
+        val targetY = params.y + (buttonSize - stripH) / 2
 
-        applyEdgeTabStyle()
+        val startX = params.x
+        val startY = params.y
+        val startW = params.width
+        val startH = params.height
+
+        micIconView.animate().alpha(0f).setDuration(140).start()
+        applyEdgeTabStyle(collapsedOnLeft)
         hideStatus()
 
-        ValueAnimator.ofInt(params.x, targetX).apply {
-            duration = 260
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 280
             interpolator = DecelerateInterpolator()
-            addUpdateListener {
-                params.x = it.animatedValue as Int
+            addUpdateListener { anim ->
+                val t = anim.animatedFraction
+                params.x = lerp(startX, targetX, t)
+                params.y = lerp(startY, targetY, t)
+                params.width = lerp(startW, stripW, t)
+                params.height = lerp(startH, stripH, t)
                 runCatching { windowManager.updateViewLayout(buttonView, params) }
                 updateStatusPosition()
             }
             start()
         }
-
-        buttonView.animate()
-            .scaleX(0.5f).alpha(0.75f)
-            .setDuration(260)
-            .setInterpolator(DecelerateInterpolator())
-            .start()
     }
 
     private fun expandFromEdge() {
         isEdgeCollapsed = false
-        val pad = (20 * resources.displayMetrics.density).toInt()
+        val dp = resources.displayMetrics.density
         val sw = getScreenWidth()
+        val pad = (20 * dp).toInt()
+
         val targetX = if (collapsedOnLeft) pad else sw - buttonSize - pad
+        val targetY = preCollapseY
+
+        val startX = params.x
+        val startY = params.y
+        val startW = params.width
+        val startH = params.height
 
         applyIdleStyle()
-        buttonView.pivotX = if (collapsedOnLeft) 0f else buttonSize.toFloat()
-        buttonView.pivotY = buttonSize / 2f
+        micIconView.animate().alpha(1f).setDuration(200).setStartDelay(160).start()
 
-        buttonView.animate()
-            .scaleX(1f).alpha(1f)
-            .setDuration(240)
-            .setInterpolator(OvershootInterpolator(1.3f))
-            .start()
-
-        ValueAnimator.ofInt(params.x, targetX).apply {
-            duration = 240
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 260
             interpolator = OvershootInterpolator(1.3f)
-            addUpdateListener {
-                params.x = it.animatedValue as Int
+            addUpdateListener { anim ->
+                val t = anim.animatedFraction
+                params.x = lerp(startX, targetX, t)
+                params.y = lerp(startY, targetY, t)
+                params.width = lerp(startW, buttonSize, t)
+                params.height = lerp(startH, buttonSize, t)
                 runCatching { windowManager.updateViewLayout(buttonView, params) }
                 updateStatusPosition()
             }
             start()
         }
+    }
+
+    // ── Radial menu ────────────────────────────────────────────────────────────
+
+    private fun openRadialMenu() {
+        if (menuActive || isRecording) return
+        menuActive = true
+        menuViews.clear()
+        menuValueViews.clear()
+
+        val dp = resources.displayMetrics.density
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val currentProfile = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
+        val currentEmoji = prefs.getString(KEY_EMOJI_LEVEL, EMOJI_FEW) ?: EMOJI_FEW
+        val currentLang = prefs.getString(KEY_LANGUAGE, "") ?: ""
+
+        val sw = getScreenWidth()
+        val onRightHalf = params.x + buttonSize / 2 > sw / 2
+        // Fan opens toward screen center
+        val baseAngleDeg = if (onRightHalf) 180.0 else 0.0
+        val radiusPx = 90f * dp
+
+        // Top-to-bottom arc: profile (upper), emoji (middle), language (lower)
+        val angleOffsets = listOf(55.0, 0.0, -55.0)
+        val containerWidth = (72 * dp).toInt()
+        val circleSize = (52 * dp).toInt()
+        val btnCX = params.x + buttonSize / 2
+        val btnCY = params.y + buttonSize / 2
+
+        val items = listOf(
+            Triple("Profil",   profileDisplayValue(currentProfile), 0),
+            Triple("Emojis",   emojiDisplayValue(currentEmoji),     1),
+            Triple("Sprache",  langDisplayValue(currentLang),       2)
+        )
+
+        items.forEachIndexed { idx, (label, value, _) ->
+            val angleRad = Math.toRadians(baseAngleDeg + angleOffsets[idx])
+            val itemCX = (btnCX + radiusPx * cos(angleRad)).toInt()
+            val itemCY = (btnCY - radiusPx * sin(angleRad)).toInt()  // Y inverted in Android
+
+            val (container, valueTv) = createMenuItemView(label, value, circleSize, containerWidth, dp)
+            menuViews.add(container)
+            menuValueViews.add(valueTv)
+
+            val capturedIdx = idx
+            container.setOnClickListener {
+                onMenuItemTap(capturedIdx)
+                scheduleMenuClose()
+            }
+
+            val lp = WindowManager.LayoutParams(
+                containerWidth,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = (itemCX - containerWidth / 2).coerceIn(0, sw - containerWidth)
+                y = (itemCY - circleSize / 2 - (12 * dp).toInt()).coerceAtLeast(0)
+            }
+
+            container.scaleX = 0f
+            container.scaleY = 0f
+            container.alpha = 0f
+            windowManager.addView(container, lp)
+
+            container.animate()
+                .scaleX(1f).scaleY(1f).alpha(1f)
+                .setDuration(220)
+                .setStartDelay((idx * 55).toLong())
+                .setInterpolator(OvershootInterpolator(1.3f))
+                .start()
+        }
+
+        scheduleMenuClose()
+    }
+
+    private fun createMenuItemView(
+        label: String,
+        value: String,
+        circleSize: Int,
+        containerWidth: Int,
+        dp: Float
+    ): Pair<LinearLayout, TextView> {
+        val valueTv = TextView(this).apply {
+            text = value
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val circle = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(circleSize, circleSize).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#E6111116"))
+                setStroke((2 * dp).toInt(), Color.parseColor("#55FFD60A"))
+            }
+            elevation = 6f * dp
+            addView(valueTv)
+        }
+
+        val caption = TextView(this).apply {
+            text = label
+            textSize = 9f
+            setTextColor(Color.parseColor("#99FFFFFF"))
+            gravity = Gravity.CENTER
+            letterSpacing = 0.06f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (5 * dp).toInt()
+            }
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(circle)
+            addView(caption)
+        }
+
+        return Pair(container, valueTv)
+    }
+
+    private fun onMenuItemTap(index: Int) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        Handler(Looper.getMainLooper()).post {
+            when (index) {
+                0 -> {
+                    val next = when (prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP) {
+                        PROFILE_WHATSAPP    -> PROFILE_PROFESSIONAL
+                        PROFILE_PROFESSIONAL -> PROFILE_FORMAL
+                        else                -> PROFILE_WHATSAPP
+                    }
+                    prefs.edit().putString(KEY_STYLE_PROFILE, next).apply()
+                    menuValueViews.getOrNull(0)?.text = profileDisplayValue(next)
+                }
+                1 -> {
+                    val next = when (prefs.getString(KEY_EMOJI_LEVEL, EMOJI_FEW) ?: EMOJI_FEW) {
+                        EMOJI_NONE -> EMOJI_FEW
+                        EMOJI_FEW  -> EMOJI_MANY
+                        else       -> EMOJI_NONE
+                    }
+                    prefs.edit().putString(KEY_EMOJI_LEVEL, next).apply()
+                    menuValueViews.getOrNull(1)?.text = emojiDisplayValue(next)
+                }
+                2 -> {
+                    val next = when (prefs.getString(KEY_LANGUAGE, "") ?: "") {
+                        ""   -> "de"
+                        "de" -> "en"
+                        else -> ""
+                    }
+                    prefs.edit().putString(KEY_LANGUAGE, next).apply()
+                    menuValueViews.getOrNull(2)?.text = langDisplayValue(next)
+                }
+            }
+        }
+    }
+
+    private fun closeRadialMenu() {
+        menuCloseHandler.removeCallbacks(menuCloseRunnable)
+        menuActive = false
+        val views = menuViews.toList()
+        menuViews.clear()
+        menuValueViews.clear()
+
+        views.forEachIndexed { idx, view ->
+            view.animate()
+                .scaleX(0f).scaleY(0f).alpha(0f)
+                .setDuration(160)
+                .setStartDelay((idx * 25).toLong())
+                .withEndAction { runCatching { windowManager.removeView(view) } }
+                .start()
+        }
+    }
+
+    private fun scheduleMenuClose() {
+        menuCloseHandler.removeCallbacks(menuCloseRunnable)
+        menuCloseHandler.postDelayed(menuCloseRunnable, 2500L)
+    }
+
+    // ── Display value helpers ──────────────────────────────────────────────────
+
+    private fun profileDisplayValue(profile: String) = when (profile) {
+        PROFILE_PROFESSIONAL -> "PRO"
+        PROFILE_FORMAL       -> "FOR"
+        else                 -> "WA"
+    }
+
+    private fun emojiDisplayValue(level: String) = when (level) {
+        EMOJI_NONE -> "—"
+        EMOJI_MANY -> "🎉"
+        else       -> "🙂"
+    }
+
+    private fun langDisplayValue(lang: String) = when (lang) {
+        "de" -> "DE"
+        "en" -> "EN"
+        else -> "🌐"
     }
 
     // ── Touch listener ─────────────────────────────────────────────────────────
@@ -387,6 +640,12 @@ class FloatingButtonService : Service() {
     private val touchListener = View.OnTouchListener { _, event ->
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                if (menuActive) {
+                    closeRadialMenu()
+                    menuClosedByDown = true
+                    return@OnTouchListener true
+                }
+                menuClosedByDown = false
                 initialX = params.x
                 initialY = params.y
                 initialTouchX = event.rawX
@@ -399,7 +658,7 @@ class FloatingButtonService : Service() {
                 true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (isEdgeCollapsed) return@OnTouchListener true
+                if (isEdgeCollapsed || menuClosedByDown) return@OnTouchListener true
                 val dx = (event.rawX - initialTouchX).toInt()
                 val dy = (event.rawY - initialTouchY).toInt()
                 if (abs(dx) > 8 || abs(dy) > 8) {
@@ -416,25 +675,17 @@ class FloatingButtonService : Service() {
             }
             MotionEvent.ACTION_UP -> {
                 longPressHandler.removeCallbacks(longPressRunnable)
+                if (menuClosedByDown) {
+                    menuClosedByDown = false
+                    return@OnTouchListener true
+                }
                 val elapsed = System.currentTimeMillis() - touchDownTime
-                val swipeDy = event.rawY - initialTouchY
                 when {
-                    isEdgeCollapsed && !isDragging -> expandFromEdge()
-                    // Swipe-up to cycle profile: check before isNearEdge so it works
-                    // regardless of button position (button starts at x=24 = left edge zone).
-                    isDragging && !isRecording && swipeDy < -80 -> cycleProfile()
+                    isEdgeCollapsed && !isDragging             -> expandFromEdge()
                     isDragging && !isRecording && isNearEdge() -> collapseToEdge()
-                    // Walkie-Talkie: stop recording on finger-up even if user drifted slightly.
-                    isDragging && isWalkieTalkieMode -> {
-                        isWalkieTalkieMode = false
-                        stopRecording(transcribe = true)
-                    }
-                    isDragging -> {}
-                    isWalkieTalkieMode -> {
-                        isWalkieTalkieMode = false
-                        stopRecording(transcribe = true)
-                    }
-                    elapsed < 350 -> toggleRecording()
+                    isDragging                                 -> { /* finished drag, no further action */ }
+                    elapsed < LONG_PRESS_MS                    -> toggleRecording()
+                    // elapsed >= LONG_PRESS_MS: menu was opened by long press runnable — no-op
                 }
                 true
             }
@@ -620,6 +871,7 @@ class FloatingButtonService : Service() {
         val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
         val profile = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
         val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
+        val emojiLevel = prefs.getString(KEY_EMOJI_LEVEL, EMOJI_FEW) ?: EMOJI_FEW
         val previewEnabled = prefs.getBoolean(KEY_PREVIEW_ENABLED, false)
 
         if (openAiKey.isBlank()) {
@@ -654,15 +906,11 @@ class FloatingButtonService : Service() {
         val finalText = (if (anthropicKey.isNotBlank()) {
             val profileLabel = when (effectiveProfile) {
                 PROFILE_PROFESSIONAL -> "Professionell"
-                PROFILE_FORMAL -> "Formal"
-                else -> "WhatsApp"
+                PROFILE_FORMAL       -> "Formal"
+                else                 -> "WhatsApp"
             }
             showStatus("Korrigiere [$profileLabel]...", Color.parseColor("#8E8E93"))
-            val systemPrompt = when (effectiveProfile) {
-                PROFILE_PROFESSIONAL -> StylePrompts.PROFESSIONAL
-                PROFILE_FORMAL -> StylePrompts.FORMAL
-                else -> StylePrompts.WHATSAPP
-            }
+            val systemPrompt = StylePrompts.get(effectiveProfile, emojiLevel)
             CostTracker.recordClaude(this)
             ClaudeClient.correct(transcription, systemPrompt, anthropicKey)
                 .getOrDefault(transcription)
@@ -807,26 +1055,6 @@ class FloatingButtonService : Service() {
             .replace(Regex("""\bSemikolon\b"""), ";")
             .replace(Regex("""\b(Absatz|neue[rn]?\s+Zeile|neuer\s+Absatz)\b""", RegexOption.IGNORE_CASE), "\n")
 
-    // ── Profile cycling (Swipe up) ────────────────────────────────────────────
-
-    private fun cycleProfile() {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val current = prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP
-        val next = when (current) {
-            PROFILE_WHATSAPP -> PROFILE_PROFESSIONAL
-            PROFILE_PROFESSIONAL -> PROFILE_FORMAL
-            else -> PROFILE_WHATSAPP
-        }
-        prefs.edit().putString(KEY_STYLE_PROFILE, next).apply()
-        val label = when (next) {
-            PROFILE_PROFESSIONAL -> "Professionell"
-            PROFILE_FORMAL -> "Formal"
-            else -> "WhatsApp"
-        }
-        showStatus("↑ Profil: $label", Color.parseColor("#0A84FF"))
-        hideStatus(1800)
-    }
-
     // ── Utilities ─────────────────────────────────────────────────────────────
 
     private suspend fun showToast(text: String) = withContext(Dispatchers.Main) {
@@ -837,21 +1065,6 @@ class FloatingButtonService : Service() {
     private fun createMediaRecorder(): MediaRecorder =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this)
         else MediaRecorder()
-
-    private fun pulse() {
-        if (!isRecording) return
-        buttonView.animate()
-            .scaleX(1.15f).scaleY(1.15f)
-            .setDuration(600)
-            .withEndAction {
-                if (!isRecording) return@withEndAction
-                buttonView.animate()
-                    .scaleX(1f).scaleY(1f)
-                    .setDuration(600)
-                    .withEndAction { pulse() }
-                    .start()
-            }.start()
-    }
 
     private fun buildNotification(): Notification {
         val channel = NotificationChannel(

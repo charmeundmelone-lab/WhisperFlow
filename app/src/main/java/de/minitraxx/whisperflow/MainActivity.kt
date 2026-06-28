@@ -220,7 +220,7 @@ fun MainScreen(
         Spacer(Modifier.height(12.dp))
         SetupStep(
             number = "3", title = "Floating Button",
-            description = "Tippen = Start/Stopp  ·  Gedrückt halten = Walkie-Talkie  ·  Nach oben wischen = Profil wechseln",
+            description = "Tippen = Start/Stopp  ·  Gedrückt halten = Schnellmenü (Profil, Emojis, Sprache)  ·  An Rand ziehen = Einrasten",
             done = serviceRunning,
             actionLabel = if (serviceRunning) "Button stoppen" else "Button starten",
             showAction = allSetUp,
@@ -356,7 +356,7 @@ fun ProfileCard(currentProfile: String, onProfileChange: (String) -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Stil-Profil", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Text(
-                "Wie soll Claude den Text formulieren?  ·  Button nach oben wischen = schnell wechseln",
+                "Wie soll Claude den Text formulieren? Über das Schnellmenü (Gedrückt halten) direkt am Button wechseln.",
                 color = Color(0xFF8E8E93), fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
             )

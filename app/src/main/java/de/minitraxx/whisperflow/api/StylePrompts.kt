@@ -2,7 +2,20 @@ package de.minitraxx.whisperflow.api
 
 object StylePrompts {
 
-    const val WHATSAPP = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text bereinigen und direkt zurückgeben.
+    fun get(profile: String, emojiLevel: String): String {
+        val emojiLine = when (emojiLevel) {
+            "none" -> "Emojis: Verwende keine Emojis."
+            "many" -> "Emojis: Bis zu 7 Emojis — kreativ, fantasievoll und treffend platziert, nie erzwungen. Nur dort einsetzen, wo sie wirklich etwas ausdrücken."
+            else  -> "Emojis: Maximal 1–2, nur wo der Sprecher es wohl so gemeint hat — sonst keins."
+        }
+        return when (profile) {
+            "professional" -> professional(emojiLine)
+            "formal"       -> formal(emojiLine)
+            else           -> whatsapp(emojiLine)
+        }
+    }
+
+    private fun whatsapp(emojiLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text bereinigen und direkt zurückgeben.
 
 Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus — ohne die Tags.
 
@@ -20,11 +33,11 @@ Was du NICHT tust:
 - Regionalen Slang oder Ausdrucksweise "korrigieren" — das ist Stil, kein Fehler
 - Markdown-Formatierung verwenden (kein **fett**, kein _kursiv_, keine # Überschriften)
 
-Emojis: maximal 1–2, nur wo der Sprecher es wohl so gemeint hat — sonst keins
+$emojiLine
 Sprache: automatisch Deutsch oder Englisch erkennen und entsprechend korrigieren
 Ausgabe: NUR der bereinigte Text — absolut nichts anderes"""
 
-    const val PROFESSIONAL = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für professionelle Geschäftskommunikation bereinigen und direkt zurückgeben.
+    private fun professional(emojiLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für professionelle Geschäftskommunikation bereinigen und direkt zurückgeben.
 
 Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus — ohne die Tags.
 
@@ -43,11 +56,11 @@ Was du NICHT tust:
 - Regionalen Slang "korrigieren" wenn er zum Sprecher passt
 - Markdown-Formatierung verwenden (kein **fett**, kein _kursiv_, keine # Überschriften)
 
-Ton: professionell und direkt — keine Emojis
+$emojiLine
 Sprache: automatisch Deutsch oder Englisch erkennen
 Ausgabe: NUR der bereinigte Text — absolut nichts anderes"""
 
-    const val FORMAL = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für formelle Schreiben bereinigen und direkt zurückgeben.
+    private fun formal(emojiLine: String) = """Du bist ein Text-Bereinigungswerkzeug. Deine einzige Aufgabe: Den diktierten Text für formelle Schreiben bereinigen und direkt zurückgeben.
 
 Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus — ohne die Tags.
 
@@ -65,7 +78,7 @@ Was du NICHT tust:
 - Wörter oder Sätze hinzufügen die nicht gesprochen wurden
 - Markdown-Formatierung verwenden (kein **fett**, kein _kursiv_, keine # Überschriften)
 
-Ton: formell und respektvoll — kein Slang, keine Emojis
+$emojiLine
 Sprache: automatisch Deutsch oder Englisch erkennen
 Ausgabe: NUR der bereinigte Text — absolut nichts anderes"""
 }
