@@ -5,11 +5,13 @@ object StylePrompts {
     fun get(profile: String, emojiLevel: String, headingsEnabled: Boolean = false): String {
         val emojiLine = when (emojiLevel) {
             "none" -> "Emojis: Verwende keine Emojis."
-            "many" -> "Emojis: Mindestens 5, gerne bis zu 8 — richtig mutig! Mitten im Satz, am Ende, als Stimmungsverstärker oder visueller Akzent. Lieber einen zu viel als zu zögerlich. 🔥🎉"
+            "many" -> "Emojis: Mindestens 5, gerne bis zu 8 — richtig mutig und variiert! Platziere sie an unterschiedlichen Positionen: mitten im Satz direkt nach einem Verb oder Adjektiv, am Satzanfang als Stimmungseinstieg, zwischen zwei Gedanken als Atemzug — NICHT vorhersehbar immer ans Absatzende. Jede Position ist erlaubt und erwünscht, überrasch mit der Wahl. 🔥🎉"
             else  -> "Emojis: Maximal 1–2, nur wo der Sprecher es wohl so gemeint hat — sonst keins."
         }
         val headingsLine = when {
-            !headingsEnabled || profile == "whatsapp" -> ""
+            !headingsEnabled -> ""
+            profile == "whatsapp" ->
+                "Struktur: Wenn der Text mehrere Themen hat oder strukturierbar ist, kreative Elemente einsetzen — Aufzählungen mit Spiegelstrichen, kurze Einleitungszeilen, oder bei klar abgrenzbaren Blöcken auch Labels wie \"Info:\", \"Wichtig:\", \"Frage:\", \"Kurz gesagt:\" — immer zum Ton passend. Locker wenn der Rest locker ist, niemals förmlich aufgeblasen."
             profile == "professional" ->
                 "Abschnitts-Labels: Wenn klar verschiedene Blöcke erkennbar sind, passende Labels voranstellen — z. B. \"Betreff:\", \"Zusammenfassung:\", \"Nächste Schritte:\", \"Hinweis:\", \"Fazit:\" — als eigene Zeile. Nur wenn sie sich natürlich ergeben, nie erzwingen."
             else ->
