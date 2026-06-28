@@ -11,11 +11,11 @@ object StylePrompts {
         val headingsLine = when {
             !headingsEnabled -> ""
             profile == "whatsapp" ->
-                "Struktur: Wenn der Text mehrere Themen hat oder strukturierbar ist, kreative Elemente einsetzen — Aufzählungen mit Spiegelstrichen, kurze Einleitungszeilen, oder bei klar abgrenzbaren Blöcken auch Labels wie \"Info:\", \"Wichtig:\", \"Frage:\", \"Kurz gesagt:\" — immer zum Ton passend. Locker wenn der Rest locker ist, niemals förmlich aufgeblasen."
+                "Struktur: Nur wenn der Sprecher klar zwischen verschiedenen Themen wechselt, darf ein kurzes lockeres Label vor dem neuen Abschnitt stehen — z. B. \"Ach ja:\" oder \"Noch kurz:\" — maximal 1–2 Labels pro Text. Fließtext bleibt Fließtext, niemals in Listen oder Aufzählungen umbauen."
             profile == "professional" ->
-                "Abschnitts-Labels: Wenn klar verschiedene Blöcke erkennbar sind, passende Labels voranstellen — z. B. \"Betreff:\", \"Zusammenfassung:\", \"Nächste Schritte:\", \"Hinweis:\", \"Fazit:\" — als eigene Zeile. Nur wenn sie sich natürlich ergeben, nie erzwingen."
+                "Abschnitts-Labels: Nur wenn klar verschiedene Blöcke erkennbar sind, passende Labels als eigene Zeile voranstellen — z. B. \"Betreff:\", \"Zusammenfassung:\", \"Nächste Schritte:\", \"Hinweis:\", \"Fazit:\". Fließtext bleibt Fließtext, niemals Listen oder Aufzählungen einführen. Nur wenn sie sich natürlich ergeben, nie erzwingen."
             else ->
-                "Abschnitts-Labels voranstellen wenn der Sprecher klar verschiedene Blöcke anspricht — z. B. \"Betreff:\", \"Sachverhalt:\", \"Bitte:\", \"Hinweis:\", \"Fazit:\" — als eigene Zeile vor dem jeweiligen Abschnitt. Nur einsetzen wenn sie sich natürlich aus dem Inhalt ergeben, nie erzwingen."
+                "Abschnitts-Labels: Nur wenn der Sprecher klar verschiedene Blöcke anspricht, passende Labels als eigene Zeile voranstellen — z. B. \"Betreff:\", \"Sachverhalt:\", \"Bitte:\", \"Hinweis:\", \"Fazit:\". Fließtext bleibt Fließtext, Labels nur voranstellen, niemals den bestehenden Textfluss umbauen. Nur einsetzen wenn sie sich natürlich aus dem Inhalt ergeben, nie erzwingen."
         }
         return when (profile) {
             "professional" -> professional(emojiLine, headingsLine)
