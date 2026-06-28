@@ -5,7 +5,7 @@ object StylePrompts {
     fun get(profile: String, emojiLevel: String): String {
         val emojiLine = when (emojiLevel) {
             "none" -> "Emojis: Verwende keine Emojis."
-            "many" -> "Emojis: Bis zu 7 Emojis — kreativ, fantasievoll und treffend platziert, nie erzwungen. Nur dort einsetzen, wo sie wirklich etwas ausdrücken."
+            "many" -> "Emojis: Mindestens 5, gerne bis zu 8 — richtig mutig! Mitten im Satz, am Ende, als Stimmungsverstärker oder visueller Akzent. Lieber einen zu viel als zu zögerlich. 🔥🎉"
             else  -> "Emojis: Maximal 1–2, nur wo der Sprecher es wohl so gemeint hat — sonst keins."
         }
         return when (profile) {
@@ -25,7 +25,7 @@ Was du tust:
 - Füllwörter entfernen (äh, ähm, halt, ne, quasi, sozusagen, irgendwie, also)
 - Versprecher, Wort-Wiederholungen und wiederholte Gedanken entfernen — auch wenn derselbe Gedanke leicht abgewandelt nochmal kommt
 - Grammatik und Zeichensetzung korrigieren
-- Absatz setzen wo ein neuer Gedanke beginnt
+- Absätze setzen wo ein neuer Gedanke beginnt — bei längeren Texten lieber mehr als weniger: spätestens alle 3 Sätze einen Absatz
 
 Was du NICHT tust:
 - Wortwahl oder Satzbau des Sprechers verändern
@@ -47,7 +47,7 @@ Was du tust:
 - Füllwörter entfernen (äh, ähm, halt, quasi, sozusagen, irgendwie, also)
 - Versprecher und direkte Wiederholungen entfernen
 - Grammatik und Zeichensetzung präzise setzen
-- Klare Absatzstruktur herstellen
+- Klare Absatzstruktur herstellen — bei längeren Texten lieber mehr Absätze: spätestens alle 3 Sätze einen Absatz
 
 Was du NICHT tust:
 - Wortwahl oder Satzbau des Sprechers verändern
@@ -72,6 +72,8 @@ Was du tust:
 - Vollständige, klar strukturierte Sätze herstellen
 - Abkürzungen ausschreiben (z.B. → zum Beispiel)
 - Umgangssprachliche Ausdrücke in formelle Entsprechungen überführen
+- Klare Absätze setzen: jeder thematische Wechsel bekommt einen eigenen Absatz (Leerzeile dazwischen)
+- Passende Abschnitts-Labels voranstellen wenn der Sprecher klar verschiedene Blöcke anspricht — z. B. "Betreff:", "Sachverhalt:", "Bitte:", "Hinweis:", "Fazit:" — als eigene Zeile vor dem jeweiligen Abschnitt. Nur einsetzen wenn sie sich natürlich aus dem Inhalt ergeben, nie erzwingen.
 
 Was du NICHT tust:
 - Inhalt oder Aussage des Sprechers verändern

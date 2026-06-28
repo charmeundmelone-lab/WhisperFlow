@@ -330,7 +330,7 @@ class FloatingButtonService : Service() {
 
     private fun applyEdgeTabStyle(onLeft: Boolean) {
         val dp = resources.displayMetrics.density
-        val r = 9f * dp
+        val r = 10f * dp
         buttonView.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             // cornerRadii order: [TL, TL, TR, TR, BR, BR, BL, BL]
@@ -363,8 +363,8 @@ class FloatingButtonService : Service() {
         isEdgeCollapsed = true
         preCollapseY = params.y
 
-        val stripW = (10 * dp).toInt()
-        val stripH = (60 * dp).toInt()
+        val stripW = (16 * dp).toInt()
+        val stripH = (64 * dp).toInt()
         val targetX = if (collapsedOnLeft) 0 else sw - stripW
         val targetY = params.y + (buttonSize - stripH) / 2
 
