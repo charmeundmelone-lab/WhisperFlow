@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WhisperFlow</string>
-    <string name="accessibility_service_description">WhisperFlow fügt diktierten Text direkt in aktive Textfelder ein</string>
+    <string name="app_name">Laberboombox</string>
+    <string name="accessibility_service_description">Laberboombox fügt diktierten Text direkt in aktive Textfelder ein</string>
 </resources>

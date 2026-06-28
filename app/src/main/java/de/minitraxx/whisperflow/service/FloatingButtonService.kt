@@ -623,7 +623,7 @@ class FloatingButtonService : Service() {
         val previewEnabled = prefs.getBoolean(KEY_PREVIEW_ENABLED, false)
 
         if (openAiKey.isBlank()) {
-            showToast("Kein OpenAI API-Key — bitte in der WhisperFlow-App eintragen")
+            showToast("Kein OpenAI API-Key — bitte in der Laberboombox-App eintragen")
             hideStatus()
             file.delete()
             return
@@ -855,12 +855,12 @@ class FloatingButtonService : Service() {
 
     private fun buildNotification(): Notification {
         val channel = NotificationChannel(
-            CHANNEL_ID, "WhisperFlow", NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ID, "Laberboombox", NotificationManager.IMPORTANCE_LOW
         ).apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("WhisperFlow")
+            .setContentTitle("Laberboombox")
             .setContentText("Mikrofon-Button ist aktiv")
             .setSmallIcon(R.drawable.ic_mic)
             .setContentIntent(
