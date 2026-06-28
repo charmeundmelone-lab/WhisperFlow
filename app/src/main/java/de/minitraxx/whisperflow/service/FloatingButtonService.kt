@@ -446,8 +446,9 @@ class FloatingButtonService : Service() {
         val baseAngleDeg = if (onRightHalf) 180.0 else 0.0
         val radiusPx = 90f * dp
 
-        // Top-to-bottom arc: profile (upper), emoji (middle), language (lower)
-        val angleOffsets = listOf(55.0, 0.0, -55.0)
+        // Top-to-bottom arc: Profil (upper), Emojis (middle), Sprache (lower).
+        // Offsets are flipped by side so the visual order stays consistent (Y is inverted in Android).
+        val angleOffsets = if (onRightHalf) listOf(-55.0, 0.0, 55.0) else listOf(55.0, 0.0, -55.0)
         val containerWidth = (72 * dp).toInt()
         val circleSize = (52 * dp).toInt()
         val btnCX = params.x + buttonSize / 2
@@ -736,6 +737,8 @@ class FloatingButtonService : Service() {
                     FrameLayout.LayoutParams.MATCH_PARENT
                 ).apply { gravity = Gravity.CENTER }
             }
+            micIconView.animate().cancel()
+            micIconView.alpha = 1f
             micIconView.visibility = View.GONE
             buttonView.addView(recLabelView)
 
@@ -772,6 +775,7 @@ class FloatingButtonService : Service() {
 
         buttonView.removeView(recLabelView)
         recLabelView = null
+        micIconView.alpha = 1f
         micIconView.visibility = View.VISIBLE
         applyIdleStyle()
         buttonView.animate().cancel()
