@@ -6,7 +6,7 @@ object StylePrompts {
         val emojiLine = when (emojiLevel) {
             "none" -> "Emojis: Verwende keine Emojis."
             "many" -> "Emojis: Mindestens 5, gerne bis zu 8 — richtig mutig und variiert! Platziere sie an unterschiedlichen Positionen: mitten im Satz direkt nach einem Verb oder Adjektiv, am Satzanfang als Stimmungseinstieg, zwischen zwei Gedanken als Atemzug — NICHT vorhersehbar immer ans Absatzende. Jede Position ist erlaubt und erwünscht, überrasch mit der Wahl. 🔥🎉"
-            else  -> "Emojis: Maximal 1–2, nur wo der Sprecher es wohl so gemeint hat — sonst keins."
+            else  -> "Emojis: 1–2 Emojis setzen — dort wo der emotionale Ton des Satzes es natürlich erlaubt oder die Stimmung unterstützt. Eigene redaktionelle Entscheidung, nicht erzwingen aber auch nicht verweigern."
         }
         val headingsLine = when {
             !headingsEnabled -> ""
