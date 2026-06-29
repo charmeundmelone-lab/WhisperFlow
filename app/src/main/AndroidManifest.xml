@@ -30,6 +30,7 @@
         <service
             android:name=".service.FloatingButtonService"
             android:foregroundServiceType="microphone"
+            android:configChanges="orientation|screenSize|screenLayout"
             android:exported="false" />
 
         <service

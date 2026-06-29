@@ -1,5 +1,7 @@
 package de.minitraxx.whisperflow.service
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.app.*
 import android.content.ClipData
@@ -92,6 +94,12 @@ class FloatingButtonService : Service() {
     private var boomView: View? = null
     private var isBoomPending = false
 
+    private var isOnRightEdge = true
+    private val inactivityHandler = Handler(Looper.getMainLooper())
+    private val inactivityRunnable = Runnable {
+        if (!isRecording && !menuActive && !isEdgeCollapsed) collapseToEdge()
+    }
+
     // ── Radial menu state ──────────────────────────────────────────────────────
     private var menuActive = false
     private val menuViews = mutableListOf<View>()
@@ -120,6 +128,8 @@ class FloatingButtonService : Service() {
         const val KEY_MAX_DURATION = "max_duration"
         private const val DURATION_MINI = 10
         private val DURATION_PRESETS = listOf(30, 90, 180, 300)
+        private const val INACTIVITY_TIMEOUT_MS = 5000L
+        const val KEY_EDGE_SIDE = "edge_side"
 
         const val PREFS_NAME = "whisperflow_prefs"
         const val KEY_OPENAI_API_KEY = "openai_api_key"
@@ -161,6 +171,7 @@ class FloatingButtonService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        cancelInactivityTimer()
         longPressHandler.removeCallbacks(longPressRunnable)
         menuCloseHandler.removeCallbacksAndMessages(null)
         timerHandler.removeCallbacksAndMessages(null)
@@ -185,6 +196,29 @@ class FloatingButtonService : Service() {
         super.onDestroy()
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val sw = getScreenWidth()
+        val sh = getScreenHeight()
+        if (isEdgeCollapsed) {
+            val dp = resources.displayMetrics.density
+            val stripW = (16 * dp).toInt()
+            val stripH = (64 * dp).toInt()
+            params.x = if (collapsedOnLeft) 0 else sw - stripW
+            params.y = params.y.coerceIn(0, (sh - stripH).coerceAtLeast(0))
+            params.width = stripW
+            params.height = stripH
+        } else {
+            params.x = if (isOnRightEdge) sw - buttonSize else 0
+            params.y = params.y.coerceIn(0, (sh - buttonSize).coerceAtLeast(0))
+            params.width = buttonSize
+            params.height = buttonSize
+        }
+        runCatching { windowManager.updateViewLayout(buttonView, params) }
+        updateStatusPosition()
+        updateBadgePositions()
+    }
+
     // ── Screen helpers ─────────────────────────────────────────────────────────
 
     @Suppress("DEPRECATION")
@@ -193,6 +227,14 @@ class FloatingButtonService : Service() {
             windowManager.currentWindowMetrics.bounds.width()
         else {
             val p = Point(); windowManager.defaultDisplay.getSize(p); p.x
+        }
+
+    @Suppress("DEPRECATION")
+    private fun getScreenHeight(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            windowManager.currentWindowMetrics.bounds.height()
+        else {
+            val p = Point(); windowManager.defaultDisplay.getSize(p); p.y
         }
 
     private fun lerp(a: Int, b: Int, t: Float) = (a + (b - a) * t).toInt()
@@ -208,6 +250,9 @@ class FloatingButtonService : Service() {
         buttonSize = (62 * dp).toInt()
         val pad = (13 * dp).toInt()
 
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        isOnRightEdge = prefs.getBoolean(KEY_EDGE_SIDE, true)
+
         micIconView = ImageView(this).apply {
             setImageResource(R.drawable.ic_mic)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -220,6 +265,7 @@ class FloatingButtonService : Service() {
         buttonView = FrameLayout(this).apply { addView(micIconView) }
         applyIdleStyle()
 
+        val sw = getScreenWidth()
         params = WindowManager.LayoutParams(
             buttonSize, buttonSize,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -227,7 +273,7 @@ class FloatingButtonService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 24
+            x = if (isOnRightEdge) sw - buttonSize else 0
             y = (120 * dp).toInt()
         }
 
@@ -235,6 +281,7 @@ class FloatingButtonService : Service() {
         windowManager.addView(buttonView, params)
         setupStatusView()
         setupDurationBadges()
+        resetInactivityTimer()
     }
 
     private fun setupStatusView() {
@@ -261,7 +308,7 @@ class FloatingButtonService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = params.x + (70 * dp).toInt()
+            x = statusX(dp)
             y = params.y + (16 * dp).toInt()
         }
         statusView = tv
@@ -269,10 +316,14 @@ class FloatingButtonService : Service() {
         windowManager.addView(tv, sp)
     }
 
+    private fun statusX(dp: Float): Int =
+        if (isOnRightEdge) (params.x - (185 * dp).toInt()).coerceAtLeast(4)
+        else params.x + buttonSize + (8 * dp).toInt()
+
     private fun updateStatusPosition() {
         val dp = resources.displayMetrics.density
         statusParams?.let { sp ->
-            sp.x = params.x + (70 * dp).toInt()
+            sp.x = statusX(dp)
             sp.y = params.y + (16 * dp).toInt()
             statusView?.let { runCatching { windowManager.updateViewLayout(it, sp) } }
         }
@@ -386,16 +437,11 @@ class FloatingButtonService : Service() {
 
     // ── Edge-Tab logic ─────────────────────────────────────────────────────────
 
-    private fun isNearEdge(): Boolean {
-        val sw = getScreenWidth()
-        val edgeZone = sw / 4
-        return params.x < edgeZone || params.x + buttonSize > sw - edgeZone
-    }
-
     private fun collapseToEdge() {
+        cancelInactivityTimer()
         val dp = resources.displayMetrics.density
         val sw = getScreenWidth()
-        collapsedOnLeft = params.x + buttonSize / 2 < sw / 2
+        collapsedOnLeft = !isOnRightEdge
         isEdgeCollapsed = true
         preCollapseY = params.y
 
@@ -432,11 +478,9 @@ class FloatingButtonService : Service() {
 
     private fun expandFromEdge() {
         isEdgeCollapsed = false
-        val dp = resources.displayMetrics.density
         val sw = getScreenWidth()
-        val pad = (20 * dp).toInt()
 
-        val targetX = if (collapsedOnLeft) pad else sw - buttonSize - pad
+        val targetX = if (collapsedOnLeft) 0 else sw - buttonSize
         val targetY = preCollapseY
 
         val startX = params.x
@@ -444,9 +488,9 @@ class FloatingButtonService : Service() {
         val startW = params.width
         val startH = params.height
 
+        isOnRightEdge = !collapsedOnLeft
         applyIdleStyle()
         micIconView.animate().alpha(1f).setDuration(200).setStartDelay(160).start()
-        showBadges()
 
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 260
@@ -459,15 +503,58 @@ class FloatingButtonService : Service() {
                 params.height = lerp(startH, buttonSize, t)
                 runCatching { windowManager.updateViewLayout(buttonView, params) }
                 updateStatusPosition()
+                updateBadgePositions()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    showBadges()
+                    resetInactivityTimer()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun snapToNearestEdge() {
+        val sw = getScreenWidth()
+        isOnRightEdge = params.x + buttonSize / 2 > sw / 2
+        saveEdgeSide()
+        val targetX = if (isOnRightEdge) sw - buttonSize else 0
+        ValueAnimator.ofInt(params.x, targetX).apply {
+            duration = 200
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                params.x = it.animatedValue as Int
+                runCatching { windowManager.updateViewLayout(buttonView, params) }
+                updateStatusPosition()
+                updateBadgePositions()
             }
             start()
         }
+        resetInactivityTimer()
+    }
+
+    private fun resetInactivityTimer() {
+        inactivityHandler.removeCallbacks(inactivityRunnable)
+        if (!isEdgeCollapsed && !isRecording) {
+            inactivityHandler.postDelayed(inactivityRunnable, INACTIVITY_TIMEOUT_MS)
+        }
+    }
+
+    private fun cancelInactivityTimer() {
+        inactivityHandler.removeCallbacks(inactivityRunnable)
+    }
+
+    private fun saveEdgeSide() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_EDGE_SIDE, isOnRightEdge).apply()
     }
 
     // ── Radial menu ────────────────────────────────────────────────────────────
 
     private fun openRadialMenu() {
         if (menuActive || isRecording) return
+        cancelInactivityTimer()
         menuActive = true
         menuViews.clear()
         menuValueViews.clear()
@@ -642,6 +729,7 @@ class FloatingButtonService : Service() {
     private fun closeRadialMenu() {
         menuCloseHandler.removeCallbacks(menuCloseRunnable)
         menuActive = false
+        resetInactivityTimer()
         val views = menuViews.toList()
         menuViews.clear()
         menuValueViews.clear()
@@ -694,6 +782,7 @@ class FloatingButtonService : Service() {
                     return@OnTouchListener true
                 }
                 menuClosedByDown = false
+                cancelInactivityTimer()
                 initialX = params.x
                 initialY = params.y
                 initialTouchX = event.rawX
@@ -730,10 +819,9 @@ class FloatingButtonService : Service() {
                 }
                 val elapsed = System.currentTimeMillis() - touchDownTime
                 when {
-                    isEdgeCollapsed && !isDragging             -> expandFromEdge()
-                    isDragging && !isRecording && isNearEdge() -> collapseToEdge()
-                    isDragging                                 -> { /* finished drag, no further action */ }
-                    elapsed < LONG_PRESS_MS                    -> toggleRecording()
+                    isEdgeCollapsed && !isDragging -> expandFromEdge()
+                    isDragging                     -> snapToNearestEdge()
+                    elapsed < LONG_PRESS_MS        -> toggleRecording()
                     // elapsed >= LONG_PRESS_MS: menu was opened by long press runnable — no-op
                 }
                 true
@@ -751,6 +839,7 @@ class FloatingButtonService : Service() {
 
     private fun startRecording() {
         if (isEdgeCollapsed) expandFromEdge()
+        cancelInactivityTimer()
         hideBadges()
         if (CostTracker.isExceeded(this)) {
             Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
@@ -793,11 +882,14 @@ class FloatingButtonService : Service() {
             buttonView.addView(recLabelView)
 
             applyRecordingStyle()
+            val sw = getScreenWidth()
             ValueAnimator.ofInt(buttonSize, pillWidth).apply {
                 duration = 220
                 interpolator = OvershootInterpolator(1.1f)
                 addUpdateListener {
-                    params.width = it.animatedValue as Int
+                    val w = it.animatedValue as Int
+                    params.width = w
+                    if (isOnRightEdge) params.x = sw - w
                     runCatching { windowManager.updateViewLayout(buttonView, params) }
                 }
                 start()
@@ -832,16 +924,20 @@ class FloatingButtonService : Service() {
         buttonView.scaleX = 1f
         buttonView.scaleY = 1f
         stopPulseRing()
+        val swStop = getScreenWidth()
         ValueAnimator.ofInt(params.width, buttonSize).apply {
             duration = 180
             interpolator = DecelerateInterpolator()
             addUpdateListener {
-                params.width = it.animatedValue as Int
+                val w = it.animatedValue as Int
+                params.width = w
+                if (isOnRightEdge) params.x = swStop - w
                 runCatching { windowManager.updateViewLayout(buttonView, params) }
             }
             start()
         }
 
+        resetInactivityTimer()
         showBadges()
         val file = lastRecordingFile ?: return
         lastRecordingFile = null
@@ -892,17 +988,21 @@ class FloatingButtonService : Service() {
             buttonView.scaleX = 1f
             buttonView.scaleY = 1f
             stopPulseRing()
+            val swBoom = getScreenWidth()
             ValueAnimator.ofInt(params.width, buttonSize).apply {
                 duration = 180
                 interpolator = DecelerateInterpolator()
                 addUpdateListener {
-                    params.width = it.animatedValue as Int
+                    val w = it.animatedValue as Int
+                    params.width = w
+                    if (isOnRightEdge) params.x = swBoom - w
                     runCatching { windowManager.updateViewLayout(buttonView, params) }
                 }
                 start()
             }
 
             showBadges()
+            resetInactivityTimer()
             if (file == null || durationMs < 300) {
                 file?.delete()
                 hideStatus()
@@ -1340,6 +1440,8 @@ class FloatingButtonService : Service() {
             setTextColor(if (isMini) Color.parseColor("#1C1C1E") else Color.WHITE)
         }
 
+        resetInactivityTimer()
+
         // subtle pulse feedback on both badges
         listOfNotNull(durationBadgeView, miniBadgeView).forEach { v ->
             v.animate().cancel()
@@ -1383,23 +1485,24 @@ class FloatingButtonService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            this.x = x.coerceAtLeast(0)
+            this.x = x.coerceIn(0, (getScreenWidth() - w).coerceAtLeast(0))
             this.y = y.coerceAtLeast(0)
         }
 
     private fun updateBadgePositions() {
         val dp = resources.displayMetrics.density
         val gap = (5 * dp).toInt()
+        val sw = getScreenWidth()
         durationBadgeParams?.let { p ->
             val w = p.width
-            p.x = params.x + (buttonSize - w) / 2
+            p.x = (params.x + (buttonSize - w) / 2).coerceIn(0, (sw - w).coerceAtLeast(0))
             p.y = params.y + buttonSize + gap
             durationBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
         }
         miniBadgeParams?.let { p ->
             val w = p.width
             val h = p.height
-            p.x = params.x + (buttonSize - w) / 2
+            p.x = (params.x + (buttonSize - w) / 2).coerceIn(0, (sw - w).coerceAtLeast(0))
             p.y = (params.y - h - gap).coerceAtLeast(0)
             miniBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
         }
