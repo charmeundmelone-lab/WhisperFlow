@@ -67,6 +67,12 @@ class FloatingButtonService : Service() {
     private var mediaRecorder: MediaRecorder? = null
     private var lastRecordingFile: File? = null
     private var capturedPackage = ""
+    private var currentMaxSeconds = 30
+
+    private var durationBadgeView: TextView? = null
+    private var durationBadgeParams: WindowManager.LayoutParams? = null
+    private var miniBadgeView: TextView? = null
+    private var miniBadgeParams: WindowManager.LayoutParams? = null
 
     private var statusView: TextView? = null
     private var statusParams: WindowManager.LayoutParams? = null
@@ -111,6 +117,9 @@ class FloatingButtonService : Service() {
         private const val LONG_PRESS_MS = 500L
         private const val MAX_RECORDING_SECONDS = 90
         private const val BOOM_WARNING_SECS = 10
+        const val KEY_MAX_DURATION = "max_duration"
+        private const val DURATION_MINI = 10
+        private val DURATION_PRESETS = listOf(30, 90, 180, 300)
 
         const val PREFS_NAME = "whisperflow_prefs"
         const val KEY_OPENAI_API_KEY = "openai_api_key"
@@ -166,6 +175,7 @@ class FloatingButtonService : Service() {
         }
         stopPulseRing()
         hidePreviewOverlay()
+        removeBadges()
         boomHandler.removeCallbacksAndMessages(null)
         runCatching { boomView?.let { windowManager.removeView(it) } }
         boomView = null
@@ -190,6 +200,7 @@ class FloatingButtonService : Service() {
     // ── Floating button setup ──────────────────────────────────────────────────
 
     private fun showFloatingButton() {
+        removeBadges()
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
         runCatching { statusView?.let { windowManager.removeView(it) }; statusView = null }
 
@@ -223,6 +234,7 @@ class FloatingButtonService : Service() {
         buttonView.setOnTouchListener(touchListener)
         windowManager.addView(buttonView, params)
         setupStatusView()
+        setupDurationBadges()
     }
 
     private fun setupStatusView() {
@@ -302,8 +314,8 @@ class FloatingButtonService : Service() {
                 WAVE_CHARS[(a * (WAVE_CHARS.size - 1)).toInt().coerceIn(0, WAVE_CHARS.size - 1)].toString()
             }.padEnd(7, '▁')
             recLabelView?.text = "$wave  $time"
-            val secsLeft = MAX_RECORDING_SECONDS - recordingSeconds
-            if (secsLeft <= BOOM_WARNING_SECS) {
+            val secsLeft = currentMaxSeconds - recordingSeconds
+            if (secsLeft <= BOOM_WARNING_SECS && currentMaxSeconds > BOOM_WARNING_SECS) {
                 val blink = (System.currentTimeMillis() / 400) % 2 == 0L
                 recLabelView?.setTextColor(if (blink) Color.parseColor("#FF3B30") else Color.parseColor("#FF9500"))
             } else {
@@ -317,7 +329,7 @@ class FloatingButtonService : Service() {
         override fun run() {
             if (!isRecording) return
             recordingSeconds++
-            if (recordingSeconds >= MAX_RECORDING_SECONDS) {
+            if (recordingSeconds >= currentMaxSeconds) {
                 triggerBoomStop()
                 return
             }
@@ -400,6 +412,7 @@ class FloatingButtonService : Service() {
         micIconView.animate().alpha(0f).setDuration(140).start()
         applyEdgeTabStyle(collapsedOnLeft)
         hideStatus()
+        hideBadges()
 
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 280
@@ -433,6 +446,7 @@ class FloatingButtonService : Service() {
 
         applyIdleStyle()
         micIconView.animate().alpha(1f).setDuration(200).setStartDelay(160).start()
+        showBadges()
 
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 260
@@ -704,6 +718,7 @@ class FloatingButtonService : Service() {
                     params.y = (initialY + dy).coerceAtLeast(0)
                     runCatching { windowManager.updateViewLayout(buttonView, params) }
                     updateStatusPosition()
+                    updateBadgePositions()
                 }
                 true
             }
@@ -736,6 +751,7 @@ class FloatingButtonService : Service() {
 
     private fun startRecording() {
         if (isEdgeCollapsed) expandFromEdge()
+        hideBadges()
         if (CostTracker.isExceeded(this)) {
             Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
             return
@@ -826,6 +842,7 @@ class FloatingButtonService : Service() {
             start()
         }
 
+        showBadges()
         val file = lastRecordingFile ?: return
         lastRecordingFile = null
         timerHandler.removeCallbacks(timerRunnable)
@@ -885,6 +902,7 @@ class FloatingButtonService : Service() {
                 start()
             }
 
+            showBadges()
             if (file == null || durationMs < 300) {
                 file?.delete()
                 hideStatus()
@@ -1247,6 +1265,178 @@ class FloatingButtonService : Service() {
             .replace(Regex("""\bDoppelpunkt\b"""), ":")
             .replace(Regex("""\bSemikolon\b"""), ";")
             .replace(Regex("""\b(Absatz|neue[rn]?\s+Zeile|neuer\s+Absatz)\b""", RegexOption.IGNORE_CASE), "\n")
+
+    // ── Duration Badges ───────────────────────────────────────────────────────
+
+    private fun setupDurationBadges() {
+        val dp = resources.displayMetrics.density
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        currentMaxSeconds = prefs.getInt(KEY_MAX_DURATION, 30)
+
+        val badgeW = (52 * dp).toInt()
+        val badgeH = (22 * dp).toInt()
+        val miniW  = (32 * dp).toInt()
+        val gap    = (5 * dp).toInt()
+
+        // ── Bottom badge: duration cycle ──────────────────────────────────────
+        val dBadge = TextView(this).apply {
+            text = durationLabel(currentMaxSeconds)
+            textSize = 10.5f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.04f
+            background = buildBadgeBg(dp, active = false)
+        }
+        val dParams = overlayParams(
+            w = badgeW, h = badgeH,
+            x = params.x + (buttonSize - badgeW) / 2,
+            y = params.y + buttonSize + gap
+        )
+        dBadge.setOnClickListener {
+            val next = when (currentMaxSeconds) {
+                30   -> 90
+                90   -> 180
+                180  -> 300
+                else -> 30
+            }
+            applyDuration(next)
+        }
+        durationBadgeView   = dBadge
+        durationBadgeParams = dParams
+        windowManager.addView(dBadge, dParams)
+
+        // ── Top badge: ⚡ Mini shortcut ────────────────────────────────────────
+        val mBadge = TextView(this).apply {
+            text = "⚡"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            background = buildBadgeBg(dp, active = currentMaxSeconds == DURATION_MINI)
+            setTextColor(if (currentMaxSeconds == DURATION_MINI) Color.parseColor("#1C1C1E") else Color.WHITE)
+        }
+        val mParams = overlayParams(
+            w = miniW, h = badgeH,
+            x = params.x + (buttonSize - miniW) / 2,
+            y = params.y - badgeH - gap
+        )
+        mBadge.setOnClickListener { applyDuration(DURATION_MINI) }
+        miniBadgeView   = mBadge
+        miniBadgeParams = mParams
+        windowManager.addView(mBadge, mParams)
+    }
+
+    private fun applyDuration(seconds: Int) {
+        currentMaxSeconds = seconds
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_MAX_DURATION, seconds).apply()
+
+        val dp = resources.displayMetrics.density
+        val isMini = seconds == DURATION_MINI
+
+        durationBadgeView?.text = durationLabel(seconds)
+
+        miniBadgeView?.apply {
+            background = buildBadgeBg(dp, active = isMini)
+            setTextColor(if (isMini) Color.parseColor("#1C1C1E") else Color.WHITE)
+        }
+
+        // subtle pulse feedback on both badges
+        listOfNotNull(durationBadgeView, miniBadgeView).forEach { v ->
+            v.animate().cancel()
+            v.animate().scaleX(0.88f).scaleY(0.88f).setDuration(70)
+                .withEndAction {
+                    v.animate().scaleX(1f).scaleY(1f)
+                        .setDuration(140)
+                        .setInterpolator(OvershootInterpolator(1.4f))
+                        .start()
+                }.start()
+        }
+    }
+
+    private fun buildBadgeBg(dp: Float, active: Boolean): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 11 * dp
+            if (active) {
+                setColor(Color.parseColor("#FFD60A"))
+                setStroke((1 * dp).toInt(), Color.parseColor("#CC7A00"))
+            } else {
+                setColor(Color.parseColor("#CC1C1C1E"))
+                setStroke((1 * dp).toInt(), Color.parseColor("#30FFFFFF"))
+            }
+        }
+
+    private fun durationLabel(seconds: Int): String = when (seconds) {
+        DURATION_MINI -> "⚡"
+        30            -> "30s"
+        90            -> "90s"
+        180           -> "3m"
+        300           -> "5m"
+        else          -> "${seconds}s"
+    }
+
+    private fun overlayParams(w: Int, h: Int, x: Int, y: Int) =
+        WindowManager.LayoutParams(
+            w, h,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            this.x = x.coerceAtLeast(0)
+            this.y = y.coerceAtLeast(0)
+        }
+
+    private fun updateBadgePositions() {
+        val dp = resources.displayMetrics.density
+        val gap = (5 * dp).toInt()
+        durationBadgeParams?.let { p ->
+            val w = p.width
+            p.x = params.x + (buttonSize - w) / 2
+            p.y = params.y + buttonSize + gap
+            durationBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
+        }
+        miniBadgeParams?.let { p ->
+            val w = p.width
+            val h = p.height
+            p.x = params.x + (buttonSize - w) / 2
+            p.y = (params.y - h - gap).coerceAtLeast(0)
+            miniBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
+        }
+    }
+
+    private fun showBadges() {
+        listOfNotNull(durationBadgeView, miniBadgeView).forEach { v ->
+            v.animate().cancel()
+            v.alpha = 0f
+            v.scaleX = 0.82f
+            v.scaleY = 0.82f
+            v.visibility = View.VISIBLE
+            v.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(220)
+                .setInterpolator(OvershootInterpolator(1.2f))
+                .start()
+        }
+    }
+
+    private fun hideBadges() {
+        listOfNotNull(durationBadgeView, miniBadgeView).forEach { v ->
+            v.animate().cancel()
+            v.animate().alpha(0f).scaleX(0.82f).scaleY(0.82f)
+                .setDuration(140)
+                .withEndAction { v.visibility = View.GONE }
+                .start()
+        }
+    }
+
+    private fun removeBadges() {
+        runCatching { durationBadgeView?.let { windowManager.removeView(it) } }
+        durationBadgeView   = null
+        durationBadgeParams = null
+        runCatching { miniBadgeView?.let { windowManager.removeView(it) } }
+        miniBadgeView   = null
+        miniBadgeParams = null
+    }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
 

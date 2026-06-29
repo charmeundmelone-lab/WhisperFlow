@@ -18,7 +18,7 @@ object ClaudeClient {
         .build()
 
     private const val MODEL = "claude-haiku-4-5-20251001"
-    private const val MAX_TOKENS = 1024
+    private const val MAX_TOKENS = 2500
 
     suspend fun correct(
         rawText: String,
