@@ -131,27 +131,6 @@ Wenn WhatsApp noch nie geöffnet war seit dem Laberboombox-Start: kein Problem m
 
 ## Offene Todos (priorisiert)
 
-### 0. Aktuell offenes Bug-Investigation (SOFORT klären beim nächsten Chat-Start)
-
-**Symptom:** Nach Neuinstallation der APK (über die kaputte APK drüber) erzeugt Claude keine
-Absätze und keine Emojis mehr — obwohl alle Einstellungen korrekt sind (Party-Modus AN,
-WhatsApp-Profil, Labels AN, Anthropic-Key eingetragen und neu eingegeben).
-
-**Diagnose bisher:**
-- Code bei `baaae14` ist korrekt — wenn `anthropicKey.isNotBlank()` → Claude wird aufgerufen
-- Alle SharedPreferences-Werte sind korrekt (per Radialmenü bestätigt)
-- Anthropic API-Key wurde gelöscht und neu eingegeben — Problem bleibt
-- Verdacht: gecachte Daten vom kaputten Build (der andere Chat-Session) stören noch
-
-**Nächster Diagnoseschritt (noch nicht durchgeführt):**
-App komplett deinstallieren → App-Daten löschen (Settings → Apps → Laberboombox → Storage → Clear Storage)
-→ APK neu installieren → API-Keys neu eingeben → testen ob Absätze/Emojis zurückkommen.
-
-Falls Neuinstallation hilft → Problem war gecachter Zustand vom kaputten Build.
-Falls Neuinstallation NICHT hilft → Dann tiefer in Code schauen (ClaudeClient, processAudio, Netzwerk).
-
----
-
 ### 1. On-Device Whisper (NÄCHSTE AUFGABE — vom User bestätigt)
 
 **Ziel:** Kosten um ~80-85% senken. Aktuell: ~49 Cent/2 Tage → Ziel: ~8-10 Cent/2 Tage.
@@ -256,6 +235,12 @@ Die Labels-Anweisung wird als letzter Listenpunkt in den "Was du tust"-Block ein
 Der User hat explizit gesagt: "Das wird voreilig gehandelt. Ich möchte nicht, dass Du einfach
 so anfängst, Sachen zu verändern." — Immer erst vorschlagen und Bestätigung abwarten, bevor
 Code-Änderungen vorgenommen werden. Optionen anbieten, nicht automatisch umsetzen.
+
+### Warum ABSOLUT VERBOTEN als erstes im System-Prompt steht
+Claude Haiku liest Anweisungen von oben nach unten. Wenn die Rolle ("Du bist ein Bereiniger")
+zuerst kommt und der Verbot-Block weiter unten, überwältigt der Helfer-Instinkt das Verbot bei
+frageartigem Diktat-Inhalt. Fix: ABSOLUT VERBOTEN-Block als allererste Zeile jedes Prompts —
+vor der Rollenbeschreibung — damit Claude die Kernregel verinnerlicht bevor er den Kontext liest.
 
 ---
 
