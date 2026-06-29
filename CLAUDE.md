@@ -3,7 +3,7 @@
 ## Was diese App ist (aktueller Stand)
 
 **App-Name:** Laberboombox (Package bleibt `de.minitraxx.whisperflow`)
-**Letzter stabiler Build:** #39 — bestätigt funktionierend ✓
+**Letzter stabiler Build:** commit `baaae14` — bestätigt funktionierend ✓
 
 Die App ist ein **Floating-Button-Diktierwerkzeug**:
 
@@ -107,6 +107,9 @@ app/src/main/res/mipmap-*/             # App-Icons (Boombox-Charakter, weiße Li
 | **Automatischer Service-Start** | Startet sich selbst bei `onResume()` wenn Overlay + Mikrofon erlaubt sind |
 | **Persistentes Keystore** | Gleiche APK-Signatur für alle Builds → kein Deinstallieren bei Updates |
 | **App-Icon** | Tanzender Boombox-Charakter, weiße Lineart auf dunklem Hintergrund (#2C2C2F), alle Mipmap-Dichten + adaptive icon |
+| **BOOM! Auto-Stop** | Nach 90s Aufnahme: MediaRecorder stoppt, 10s Vorwarnung (roter Timer blinkt orange/rot), danach Comic-Starburst-Overlay (gelb #FFD60A, 16-zackig) mit rotem "BOOM!" — 1,5s Anzeige → automatische Transkription. `triggerBoomStop()` + `showBoomOverlay()` in FloatingButtonService. `isBoomPending` Flag verhindert manuelles Toggle während BOOM läuft. |
+| **Labels-Toggle** | 4. Button im Radialmenü (AN/AUS). Steuert `headingsEnabled` Boolean in SharedPreferences (`KEY_HEADINGS_ENABLED`). Wird an `StylePrompts.get()` weitergegeben → WA: lockere Labels ("Ach ja:", "Noch kurz:"), Professional: Business-Labels ("Betreff:", "Fazit:"), Formal: Dokumenten-Labels ("Sachverhalt:", "Bitte:"). Fließtext bleibt IMMER Fließtext — Claude darf niemals Listen oder Aufzählungen einführen. |
+| **Emoji-Modi** | "keine" = 0 Emojis. "wenige" = 1–2 Emojis nach eigenem redaktionellem Ermessen (nicht erzwingen, nicht verweigern). "viele" = 5–8 Emojis, Platzierung variiert (mitten im Satz, Satzanfang, zwischen Gedanken — NICHT vorhersehbar immer ans Absatzende). |
 
 ---
 
@@ -128,12 +131,41 @@ Wenn WhatsApp noch nie geöffnet war seit dem Laberboombox-Start: kein Problem m
 
 ## Offene Todos (priorisiert)
 
-### 1. EncryptedSharedPreferences für API-Keys
+### 1. On-Device Whisper (NÄCHSTE AUFGABE — vom User bestätigt)
+
+**Ziel:** Kosten um ~80-85% senken. Aktuell: ~49 Cent/2 Tage → Ziel: ~8-10 Cent/2 Tage.
+
+**Entschiedene Strategie — Hybridpipeline:**
+```
+< 10s Aufnahme  →  Lokal whisper-tiny-int8 (kostenlos) + kein Claude
+10–30s          →  Lokal whisper-tiny-int8 (kostenlos) + Claude optional
+> 30s           →  Lokal whisper-tiny-int8 (kostenlos) + Claude ja
+Formal-Modus    →  Lokal whisper-tiny-int8 (kostenlos) + Claude immer
+```
+
+**Technischer Plan:**
+- Library: `com.microsoft.onnxruntime:onnxruntime-android`
+- Modell: `whisper-tiny-int8` (~40MB, einmalig beim ersten App-Start herunterladen, in `filesDir` speichern)
+- Neue Datei: `api/WhisperLocalClient.kt` (ersetzt `WhisperClient.kt` für kurze Aufnahmen)
+- Audio-Pipeline: M4A → PCM 16kHz mono via `MediaExtractor` + `MediaCodec`
+- Mel-Spectrogram berechnen → ONNX Encoder → ONNX Decoder Loop → Text
+- Integration in `FloatingButtonService.processAudio()`: Routing nach Aufnahmedauer
+- Qualität: 85–90% von Whisper API — für Alltagsdiktate ausreichend
+- Nothing Phone 3a (Snapdragon 7s Gen 3, 8GB RAM): perfekt geeignet
+- Inferenzzeit: ca. 5–8s für 30s Aufnahme
+
+**Umsetzung in Stufen:**
+1. Dependency + Modell-Download (einmalig) ← Stufe 1
+2. Audio M4A → PCM Konvertierung ← Stufe 2
+3. ONNX Whisper Inferenz ← Stufe 3
+4. Integration + Routing in FloatingButtonService ← Stufe 4
+
+### 2. EncryptedSharedPreferences für API-Keys
 Aktuell: plain `SharedPreferences`. Sicherer wäre Jetpack Security (`EncryptedSharedPreferences`).
 Für Privatnutzung auf einem nicht-gerooteten Gerät akzeptabel, aber technische Schuld.
 Dependency: `androidx.security:security-crypto:1.1.0-alpha06`
 
-### 2. Remote-Branch aufräumen
+### 3. Remote-Branch aufräumen
 `claude/android-project-setup-tqy5h9` auf GitHub (remote) manuell löschen:
 GitHub → Repository → Branches → branch löschen. Hat keinen Einfluss auf Funktion.
 
@@ -183,6 +215,26 @@ bei `startRecording()` in `capturedPackage` gespeichert und in `processAudio()` 
 
 ### Warum plain SharedPreferences (nicht EncryptedSharedPreferences)
 Einfachheit. Für 1–2 Nutzer auf privaten Geräten ausreichend. Kann jederzeit migriert werden.
+
+### BOOM! Auto-Stop nach 90 Sekunden
+`timerRunnable` zählt Sekunden hoch. Bei `recordingSeconds >= MAX_RECORDING_SECONDS (90)` wird
+`triggerBoomStop()` aufgerufen statt normal zu stoppen. MediaRecorder stoppt sofort, `isBoomPending = true`
+verhindert manuellen Toggle. `showBoomOverlay()` zeichnet 16-zackigen Starburst (Canvas, gelb #FFD60A,
+Kontur #CC7A00) + rotes "BOOM!" (Outline #660000, Fill #FF2200) als anonyme View-Unterklasse.
+Scale-in Animation mit `OvershootInterpolator(1.8f)`. Nach 1500ms: `hideBoomOverlay()` + normale
+Transkriptions-Pipeline startet. `amplitudeRunnable` blinkt die letzten 10s rot/orange als Vorwarnung.
+
+### Labels-Toggle — Warum Fließtext-Priorität
+Erster Versuch des WhatsApp-Labels-Prompts enthielt "kreative Elemente, Spiegelstriche" →
+Claude hat Texte in Listen umgebaut statt nur Labels voranzustellen. Fix: alle drei Modi
+bekamen explizit "Fließtext bleibt Fließtext, niemals in Listen oder Aufzählungen umbauen".
+Die Labels-Anweisung wird als letzter Listenpunkt in den "Was du tust"-Block eingebettet:
+`${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}` am Ende der jeweiligen Aufzählung.
+
+### Verhaltensregel für Claude-Instanz: Niemals ohne Bestätigung implementieren
+Der User hat explizit gesagt: "Das wird voreilig gehandelt. Ich möchte nicht, dass Du einfach
+so anfängst, Sachen zu verändern." — Immer erst vorschlagen und Bestätigung abwarten, bevor
+Code-Änderungen vorgenommen werden. Optionen anbieten, nicht automatisch umsetzen.
 
 ---
 
@@ -238,6 +290,7 @@ Alle in `FloatingButtonService.companion object`:
 | `KEY_STYLE_PROFILE` | `style_profile` | `whatsapp` / `professional` / `formal` |
 | `KEY_LANGUAGE` | `whisper_language` | Whisper-Sprache (leer = auto) |
 | `KEY_PREVIEW_ENABLED` | `preview_enabled` | Vorschau-Overlay vor Einfügen |
+| `KEY_HEADINGS_ENABLED` | `headings_enabled` | Labels/Überschriften AN (true) / AUS (false), default true |
 
 ---
 
