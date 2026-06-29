@@ -67,7 +67,6 @@ class FloatingButtonService : Service() {
     private var mediaRecorder: MediaRecorder? = null
     private var lastRecordingFile: File? = null
     private var capturedPackage = ""
-    private var lastSignificantSoundTime = 0L
 
     private var statusView: TextView? = null
     private var statusParams: WindowManager.LayoutParams? = null
@@ -112,9 +111,6 @@ class FloatingButtonService : Service() {
         private const val LONG_PRESS_MS = 500L
         private const val MAX_RECORDING_SECONDS = 90
         private const val BOOM_WARNING_SECS = 10
-        private const val SILENCE_THRESHOLD = 600
-        private const val SILENCE_AUTO_STOP_MS = 2500L
-        private const val SILENCE_COOLDOWN_MS = 1500L
 
         const val PREFS_NAME = "whisperflow_prefs"
         const val KEY_OPENAI_API_KEY = "openai_api_key"
@@ -298,18 +294,6 @@ class FloatingButtonService : Service() {
             val amp = (mediaRecorder?.maxAmplitude ?: 0).coerceIn(0, 32767)
             if (amplitudeHistory.size >= 7) amplitudeHistory.removeFirst()
             amplitudeHistory.addLast(amp / 32767f)
-
-            val now = System.currentTimeMillis()
-            if (amp >= SILENCE_THRESHOLD) {
-                lastSignificantSoundTime = now
-            } else if (lastSignificantSoundTime > 0L && !isBoomPending) {
-                val elapsed = now - recordingStartTime
-                val silence = now - lastSignificantSoundTime
-                if (elapsed >= SILENCE_COOLDOWN_MS && silence >= SILENCE_AUTO_STOP_MS) {
-                    stopRecording(transcribe = true)
-                    return
-                }
-            }
 
             val s = recordingSeconds
             val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
@@ -805,7 +789,6 @@ class FloatingButtonService : Service() {
 
             amplitudeHistory.clear()
             recordingSeconds = 0
-            lastSignificantSoundTime = 0L
             amplitudeHandler.post(amplitudeRunnable)
             timerHandler.post(timerRunnable)
             startPulseRing()
