@@ -820,11 +820,13 @@ class FloatingButtonService : Service() {
                         isDragging = true
                         longPressHandler.removeCallbacks(longPressRunnable)
                     }
-                    params.x = (initialX + dx).coerceAtLeast(0)
-                    params.y = (initialY + dy).coerceAtLeast(0)
-                    runCatching { windowManager.updateViewLayout(buttonView, params) }
-                    updateStatusPosition()
-                    updateBadgePositions()
+                    if (!isRecording) {
+                        params.x = (initialX + dx).coerceAtLeast(0)
+                        params.y = (initialY + dy).coerceAtLeast(0)
+                        runCatching { windowManager.updateViewLayout(buttonView, params) }
+                        updateStatusPosition()
+                        updateBadgePositions()
+                    }
                 }
                 // Wisch nach unten während Aufnahme = Verwerfen-Vorschau
                 if (isRecording) {
@@ -1030,7 +1032,7 @@ class FloatingButtonService : Service() {
         amplitudeHandler.removeCallbacks(amplitudeRunnable)
         amplitudeHistory.clear()
 
-        if (!transcribe || durationMs < 300) {
+        if (!transcribe || durationMs < 1500) {
             file.delete()
             hideStatus()
             return
