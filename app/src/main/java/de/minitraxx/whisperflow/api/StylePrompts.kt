@@ -11,11 +11,11 @@ object StylePrompts {
         val headingsLine = when {
             !headingsEnabled -> ""
             profile == "whatsapp" ->
-                "Struktur: Nur wenn der Sprecher klar zwischen verschiedenen Themen wechselt, darf ein kurzes lockeres Label vor dem neuen Abschnitt stehen — z. B. \"Ach ja:\" oder \"Noch kurz:\" — maximal 1–2 Labels pro Text. Fließtext bleibt Fließtext, niemals in Listen oder Aufzählungen umbauen."
+                "Überschriften: Erfinde originelle, kurze Überschriften — witzig, frech, manchmal lakonisch, manchmal überraschend. Niemals generisch. Nur wo ein neuer Gedanke beginnt UND du eine wirklich gute Formulierung hast — dann sei mutig. Als eigene Zeile direkt vor dem Abschnitt, kein Doppelpunkt nötig, kein Sonderzeichen. Fließtext bleibt Fließtext, keine Listen."
             profile == "professional" ->
-                "Abschnitts-Labels: Nur wenn klar verschiedene Blöcke erkennbar sind, passende Labels als eigene Zeile voranstellen — z. B. \"Betreff:\", \"Zusammenfassung:\", \"Nächste Schritte:\", \"Hinweis:\", \"Fazit:\". Fließtext bleibt Fließtext, niemals Listen oder Aufzählungen einführen. Nur wenn sie sich natürlich ergeben, nie erzwingen."
+                "Überschriften: Wo ein neuer Themenblock beginnt, darf ein knapper, pointierter Titel folgen — nicht generisch ('Wichtig:', 'Punkt 2:'), sondern präzise und auf den Kern gebracht. Als eigene Zeile vor dem Abschnitt. Nicht erzwingen — aber wenn du eine treffende Formulierung siehst, nutze sie. Fließtext bleibt Fließtext, keine Listen."
             else ->
-                "Abschnitts-Labels: Nur wenn der Sprecher klar verschiedene Blöcke anspricht, passende Labels als eigene Zeile voranstellen — z. B. \"Betreff:\", \"Sachverhalt:\", \"Bitte:\", \"Hinweis:\", \"Fazit:\". Fließtext bleibt Fließtext, Labels nur voranstellen, niemals den bestehenden Textfluss umbauen. Nur einsetzen wenn sie sich natürlich aus dem Inhalt ergeben, nie erzwingen."
+                "Abschnitts-Titel: Nur bei klar getrennten Sachpunkten einen sachlichen Kurztitel voranstellen (z.B. 'Sachverhalt:', 'Bitte:', 'Hinweis:'). Kein kreativer Spielraum — sachlich und präzise."
         }
         val plattLine = if (languageHint == "platt")
             "Dialekt: Der Sprecher verwendet Plattdeutsch oder niederdeutschen Dialekt. Behalte alle Dialektwörter, plattdeutschen Ausdrücke und regionalen Begriffe EXAKT so bei wie transkribiert — übersetze sie NIEMALS ins Hochdeutsche."
@@ -37,7 +37,7 @@ Was du tust (NUR das):
 - Füllwörter entfernen: Hesitationslaute (äh, ähm, öhm, hm) immer entfernen. "Also" nur wenn bloße Satzeinleitung ohne Inhalt. "genau genau" / "ja genau" als reine Bestätigung entfernen. "ne" am Satzende als Bestätigungsfüllsel entfernen. "halt", "quasi", "sozusagen", "irgendwie" entfernen wenn bedeutungslos. BEHALTEN wenn inhaltlich: "Also dann machen wir...", "Genau dieser Punkt...", "Ja, das stimmt weil..."
 - Offensichtliche Versprecher und direkte Wort-Wiederholungen entfernen (z. B. "ich ich" → "ich")
 - Grammatik und Zeichensetzung korrigieren — ohne dabei Sätze umzubauen
-- Absätze setzen wo ein neuer Gedanke beginnt${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
+- Absätze & Trenner: Wo ein Gedanke endet und ein neuer beginnt, setze einen Trenner — variiere instinktiv nach Rhythmus: manchmal schlichte Leerzeile, manchmal ein einzelnes '—' als eigene Zeile (wenn der Wechsel abrupt ist), manchmal '· · ·' (wenn eine Pause spürbar war). Der Text soll schön aussehen und wie von einem Menschen geschrieben wirken — nicht maschinell.${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
 Was du NIEMALS tust:
 - Einen Satz anders formulieren als er gesprochen wurde
@@ -62,7 +62,7 @@ Was du tust (NUR das):
 - Füllwörter entfernen: Hesitationslaute (äh, ähm, öhm, hm) immer entfernen. "Also" nur wenn bloße Satzeinleitung ohne Inhalt. "genau genau" / "ja genau" als reine Bestätigung entfernen. "ne" am Satzende als Bestätigungsfüllsel entfernen. "halt", "quasi", "sozusagen", "irgendwie" entfernen wenn bedeutungslos. BEHALTEN wenn inhaltlich: "Also dann machen wir...", "Genau dieser Punkt...", "Ja, das stimmt weil..."
 - Offensichtliche Versprecher und direkte Wort-Wiederholungen entfernen
 - Grammatik und Zeichensetzung korrigieren — ohne dabei Sätze umzubauen
-- Klare Absatzstruktur herstellen — bei längeren Texten spätestens alle 3 Sätze einen Absatz${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
+- Absätze: Bei jedem Themenwechsel zuverlässig einen Absatz — hauptsächlich Leerzeile. Wo ein stärkerer Gedankenbruch spürbar ist, darf gelegentlich ein '—' als Trenner (eigene Zeile) stehen. Nicht mechanisch zählen — nach Rhythmus und Inhalt urteilen.${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
 Was du NIEMALS tust:
 - Einen Satz anders formulieren als er gesprochen wurde
@@ -88,7 +88,7 @@ Was du tust (NUR das):
 - Grammatik und Zeichensetzung sehr präzise setzen
 - Abkürzungen ausschreiben (z.B. → zum Beispiel)
 - Einzelne umgangssprachliche Wörter durch formelle Entsprechungen ersetzen — ohne den Satz umzubauen
-- Klare Absätze setzen: jeder thematische Wechsel bekommt einen eigenen Absatz (Leerzeile dazwischen)${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
+- Absätze: Jeder thematische Wechsel bekommt einen eigenen Absatz mit Leerzeile. Kein kreativer Spielraum beim Trenner — immer schlichte Leerzeile.${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
 Was du NIEMALS tust:
 - Einen Satz anders formulieren als er gesprochen wurde — nur einzelne Wörter formal anpassen
