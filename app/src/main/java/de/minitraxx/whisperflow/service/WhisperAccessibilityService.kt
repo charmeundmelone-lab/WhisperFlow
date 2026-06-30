@@ -20,9 +20,12 @@ class WhisperAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        event?.packageName?.toString()?.let { pkg ->
-            if (pkg.isNotEmpty()) activePackage = pkg
-        }
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString() ?: return
+        if (pkg.isBlank()) return
+        if (pkg == "de.minitraxx.whisperflow") return
+        if (pkg.startsWith("com.android.") || pkg == "android") return
+        activePackage = pkg
     }
 
     override fun onInterrupt() {}
