@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Laberboombox – Button-Anleitung</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #1C1C1E;
+    color: #fff;
+    font-family: 'Nunito', Arial, sans-serif;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 14mm 16mm 12mm;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1.5px solid #48484A;
+  }
+
+  .logo { font-size: 38px; }
+
+  header h1 { font-size: 26px; font-weight: 900; color: #FFD60A; line-height: 1; }
+  header p  { font-size: 12px; color: #8E8E93; font-weight: 700; margin-top: 2px; }
+
+  /* grid of cards */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .card {
+    background: #2C2C2F;
+    border: 1.5px solid #48484A;
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+
+  .card.yellow { border-color: rgba(255,214,10,0.5); }
+  .card.red    { border-color: rgba(255,59,48,0.5);  }
+  .card.green  { border-color: rgba(48,209,88,0.5);  }
+  .card.blue   { border-color: rgba(10,132,255,0.5); }
+  .card.orange { border-color: rgba(255,149,0,0.5);  }
+
+  .icon { font-size: 32px; flex-shrink: 0; line-height: 1; }
+
+  .card h3 { font-size: 14px; font-weight: 900; color: #fff; margin-bottom: 3px; }
+  .card p  { font-size: 12px; color: #8E8E93; font-weight: 700; line-height: 1.45; }
+  .card p strong { color: #fff; }
+
+  /* timer row */
+  .timer-section {
+    background: #2C2C2F;
+    border: 1.5px solid #48484A;
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 10px;
+  }
+
+  .timer-section .icon { font-size: 28px; }
+
+  .timer-section h3 { font-size: 13px; font-weight: 900; color: #fff; margin-bottom: 6px; }
+
+  .pills { display: flex; gap: 7px; flex-wrap: wrap; }
+
+  .pill {
+    background: #1C1C1E;
+    border: 1.5px solid #48484A;
+    border-radius: 16px;
+    padding: 4px 13px;
+    font-size: 13px;
+    font-weight: 900;
+    color: #8E8E93;
+  }
+  .pill.active {
+    background: #FFD60A;
+    border-color: #CC7A00;
+    color: #1C1C1E;
+  }
+
+  /* footer tip */
+  .tip {
+    background: rgba(255,214,10,0.07);
+    border: 1.5px solid rgba(255,214,10,0.25);
+    border-radius: 12px;
+    padding: 11px 15px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    font-size: 12px;
+    color: #8E8E93;
+    font-weight: 700;
+    line-height: 1.45;
+  }
+  .tip strong { color: #FFD60A; }
+
+  footer {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 10px;
+    color: #48484A;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  @media print {
+    body { background: #1C1C1E; }
+    @page { size: A4 portrait; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🎤</div>
+  <div>
+    <h1>Laberboombox</h1>
+    <p>Button-Kurzanleitung</p>
+  </div>
+</header>
+
+<div class="grid">
+
+  <div class="card green">
+    <div class="icon">👆</div>
+    <div>
+      <h3>Einmal kurz tippen</h3>
+      <p>Aufnahme <strong>starten</strong>. Nochmal tippen → Aufnahme <strong>stoppen</strong> und Text wird automatisch eingefügt.</p>
+    </div>
+  </div>
+
+  <div class="card yellow">
+    <div class="icon">✋</div>
+    <div>
+      <h3>Lang drücken (0,5 s)</h3>
+      <p>Einstellungsmenü öffnen: <strong>Profil · Emojis · Sprache · Labels</strong> — antippen zum Wechseln.</p>
+    </div>
+  </div>
+
+  <div class="card blue">
+    <div class="icon">↕️</div>
+    <div>
+      <h3>Rauf- / runterziehen</h3>
+      <p>Button <strong>verschieben</strong>. Beim Loslassen schnappt er automatisch an den <strong>linken oder rechten Rand</strong>.</p>
+    </div>
+  </div>
+
+  <div class="card orange">
+    <div class="icon">😴</div>
+    <div>
+      <h3>Nach 5 Sek. schläft er ein</h3>
+      <p>Button schrumpft zum <strong>gelben Tab am Rand</strong> — stört nicht beim Video schauen. Antippen → aufwachen!</p>
+    </div>
+  </div>
+
+  <div class="card yellow">
+    <div class="icon">⚡</div>
+    <div>
+      <h3>Badge oben antippen</h3>
+      <p><strong>Mini-Modus (10 s)</strong> aktivieren — leuchtet gelb wenn aktiv. Ideal für kurze WhatsApp-Antworten.</p>
+    </div>
+  </div>
+
+  <div class="card blue">
+    <div class="icon">⏱️</div>
+    <div>
+      <h3>Badge unten antippen</h3>
+      <p>Maximale Aufnahmedauer wechseln: <strong>30 s → 90 s → 3 min → 5 min → 30 s …</strong></p>
+    </div>
+  </div>
+
+  <div class="card red" style="grid-column: span 2;">
+    <div class="icon">💥</div>
+    <div>
+      <h3>BOOM! — Automatischer Stopp</h3>
+      <p>Wenn die maximale Zeit erreicht ist, stoppt die Aufnahme von selbst und ein gelber Starburst erscheint kurz. Die letzten <strong>10 Sekunden</strong> blinkt der Timer orange/rot als Vorwarnung. Danach startet die Transkription automatisch.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="timer-section">
+  <div class="icon">⏳</div>
+  <div>
+    <h3>Aufnahmedauer-Presets</h3>
+    <div class="pills">
+      <div class="pill active">⚡ 10s</div>
+      <div class="pill">30s</div>
+      <div class="pill">90s</div>
+      <div class="pill">3m</div>
+      <div class="pill">5m</div>
+    </div>
+  </div>
+</div>
+
+<div class="tip">
+  <span style="font-size:20px">💡</span>
+  <span>Der Button merkt sich seine Position (links/rechts). Während der Aufnahme ist die rote Pille sichtbar mit Wellenform und Timer — kein Antippen nötig, einfach sprechen und am Ende nochmal tippen oder warten bis BOOM!</span>
+</div>
+
+<footer>Laberboombox · Privatnutzung · 2025</footer>
+
+</body>
+</html>
