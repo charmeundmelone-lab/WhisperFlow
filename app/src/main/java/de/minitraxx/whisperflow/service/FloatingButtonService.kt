@@ -1270,14 +1270,14 @@ class FloatingButtonService : Service() {
         return if (result.isEmpty()) listOf(text) else result
     }
 
-    private fun showPreviewOverlay(text: String) {
+    private fun showPreviewOverlay(inputText: String) {
         hidePreviewOverlay()
         val dp = resources.displayMetrics.density
         val sw = getScreenWidth()
         val sh = getScreenHeight()
         val sheetH = (sh * 0.75f).toInt()
 
-        previewSentences = splitIntoSentences(text).toMutableList()
+        previewSentences = splitIntoSentences(inputText).toMutableList()
         selectedSentenceIndex = -1
         sentenceViews.clear()
 
