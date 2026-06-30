@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Laberboombox – Betriebsanleitung</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap');
+
+  :root {
+    --dark:    #1C1C1E;
+    --darker:  #141416;
+    --card:    #2C2C2F;
+    --yellow:  #FFD60A;
+    --red:     #FF3B30;
+    --blue:    #0A84FF;
+    --green:   #30D158;
+    --gray:    #8E8E93;
+    --white:   #FFFFFF;
+    --border:  #48484A;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--dark);
+    color: var(--white);
+    font-family: 'Nunito', Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* ── Cover page ───────────────────────────────────────────── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 60px 40px;
+    background: radial-gradient(ellipse at 50% 30%, #2a2a40 0%, var(--darker) 70%);
+    page-break-after: always;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -80px; left: -80px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(255,214,10,0.12) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .cover::after {
+    content: '';
+    position: absolute;
+    bottom: -60px; right: -60px;
+    width: 250px; height: 250px;
+    background: radial-gradient(circle, rgba(255,59,48,0.10) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+
+  .cover-icon {
+    font-size: 100px;
+    margin-bottom: 24px;
+    filter: drop-shadow(0 8px 24px rgba(255,214,10,0.4));
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-8px); }
+  }
+
+  .cover h1 {
+    font-size: 52px;
+    font-weight: 900;
+    color: var(--yellow);
+    letter-spacing: -1px;
+    text-shadow: 0 4px 20px rgba(255,214,10,0.3);
+    margin-bottom: 8px;
+  }
+
+  .cover .subtitle {
+    font-size: 20px;
+    color: var(--gray);
+    margin-bottom: 40px;
+    font-weight: 700;
+  }
+
+  .cover-tagline {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--white);
+    max-width: 480px;
+    line-height: 1.3;
+  }
+
+  .cover-badges {
+    display: flex;
+    gap: 12px;
+    margin-top: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .badge {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray);
+  }
+
+  .badge.yellow { border-color: var(--yellow); color: var(--yellow); }
+  .badge.green  { border-color: var(--green);  color: var(--green);  }
+  .badge.blue   { border-color: var(--blue);   color: var(--blue);   }
+
+  .version-tag {
+    position: absolute;
+    bottom: 40px;
+    font-size: 12px;
+    color: var(--border);
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* ── Page layout ──────────────────────────────────────────── */
+  .page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 60px 48px;
+    page-break-before: always;
+  }
+
+  .page-first { page-break-before: avoid; }
+
+  /* ── Section headers ──────────────────────────────────────── */
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, var(--yellow), #F5A800);
+    color: var(--darker);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-radius: 6px;
+    padding: 4px 12px;
+    margin-bottom: 12px;
+  }
+
+  h2 {
+    font-size: 32px;
+    font-weight: 900;
+    color: var(--white);
+    margin-bottom: 6px;
+    line-height: 1.2;
+  }
+
+  .page-intro {
+    color: var(--gray);
+    font-size: 16px;
+    margin-bottom: 36px;
+    font-weight: 700;
+  }
+
+  /* ── Cards ────────────────────────────────────────────────── */
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .cards.three { grid-template-columns: 1fr 1fr 1fr; }
+  .cards.one   { grid-template-columns: 1fr; }
+
+  .card {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 18px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: attr(data-accent);
+    position: absolute;
+    top: -10px; right: -6px;
+    font-size: 64px;
+    opacity: 0.07;
+    pointer-events: none;
+  }
+
+  .card.yellow { border-color: rgba(255,214,10,0.35); }
+  .card.red    { border-color: rgba(255,59,48,0.35);  }
+  .card.blue   { border-color: rgba(10,132,255,0.35); }
+  .card.green  { border-color: rgba(48,209,88,0.35);  }
+
+  .card-icon {
+    font-size: 36px;
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  .card h3 {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    color: var(--white);
+  }
+
+  .card p {
+    font-size: 14px;
+    color: var(--gray);
+    line-height: 1.5;
+    font-weight: 700;
+  }
+
+  .card .highlight {
+    color: var(--white);
+    font-weight: 800;
+  }
+
+  /* ── Step list ────────────────────────────────────────────── */
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+
+  .step-num {
+    min-width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--yellow), #F5A800);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--darker);
+    flex-shrink: 0;
+  }
+
+  .step-content h4 {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--white);
+    margin-bottom: 2px;
+  }
+
+  .step-content p {
+    font-size: 13px;
+    color: var(--gray);
+    font-weight: 700;
+  }
+
+  /* ── Big gesture diagram ──────────────────────────────────── */
+  .gesture-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+
+  .gesture {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .gesture .gest-icon { font-size: 44px; margin-bottom: 8px; display: block; }
+  .gesture .gest-name { font-size: 15px; font-weight: 900; color: var(--white); margin-bottom: 4px; }
+  .gesture .gest-desc { font-size: 13px; color: var(--gray); font-weight: 700; }
+
+  /* ── Profile cards ────────────────────────────────────────── */
+  .profiles { display: flex; flex-direction: column; gap: 14px; margin-bottom: 32px; }
+
+  .profile {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 24px;
+  }
+
+  .profile-tag {
+    min-width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+
+  .profile-tag.wa   { background: rgba(48,209,88,0.15);  color: var(--green); border: 2px solid rgba(48,209,88,0.4); }
+  .profile-tag.pro  { background: rgba(10,132,255,0.15); color: var(--blue);  border: 2px solid rgba(10,132,255,0.4); }
+  .profile-tag.form { background: rgba(255,214,10,0.15); color: var(--yellow);border: 2px solid rgba(255,214,10,0.4); }
+
+  .profile-info h4 { font-size: 17px; font-weight: 800; color: var(--white); margin-bottom: 3px; }
+  .profile-info p  { font-size: 13px; color: var(--gray); font-weight: 700; }
+
+  /* ── Timer presets ────────────────────────────────────────── */
+  .timer-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+  }
+
+  .timer-pill {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 22px;
+    padding: 8px 20px;
+    font-size: 15px;
+    font-weight: 900;
+    color: var(--gray);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .timer-pill.active {
+    background: var(--yellow);
+    border-color: #CC7A00;
+    color: var(--darker);
+  }
+
+  /* ── Tip box ──────────────────────────────────────────────── */
+  .tip {
+    background: rgba(255,214,10,0.08);
+    border: 1.5px solid rgba(255,214,10,0.3);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .tip-icon { font-size: 24px; flex-shrink: 0; }
+  .tip-text { font-size: 14px; color: var(--gray); font-weight: 700; line-height: 1.5; }
+  .tip-text strong { color: var(--yellow); }
+
+  /* ── BOOM section ─────────────────────────────────────────── */
+  .boom-box {
+    background: radial-gradient(ellipse at 50% 0%, rgba(255,214,10,0.15) 0%, transparent 70%),
+                var(--card);
+    border: 2px solid var(--yellow);
+    border-radius: 20px;
+    padding: 32px;
+    text-align: center;
+    margin-bottom: 28px;
+  }
+
+  .boom-text {
+    font-size: 64px;
+    font-weight: 900;
+    color: var(--red);
+    text-shadow: 0 0 30px rgba(255,59,48,0.5), 3px 3px 0 #660000;
+    letter-spacing: 2px;
+    line-height: 1;
+    margin-bottom: 12px;
+  }
+
+  .boom-desc {
+    font-size: 15px;
+    color: var(--gray);
+    font-weight: 700;
+  }
+
+  /* ── FAQ ──────────────────────────────────────────────────── */
+  .faq { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+
+  .faq-item {
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 22px;
+  }
+
+  .faq-q { font-size: 15px; font-weight: 800; color: var(--white); margin-bottom: 4px; }
+  .faq-a { font-size: 13px; color: var(--gray); font-weight: 700; line-height: 1.5; }
+
+  /* ── Back cover ───────────────────────────────────────────── */
+  .backcover {
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 60px 40px;
+    page-break-before: always;
+  }
+
+  .backcover h2 { font-size: 36px; margin-bottom: 12px; }
+  .backcover p  { color: var(--gray); font-weight: 700; }
+
+  /* ── Divider ──────────────────────────────────────────────── */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 32px 0;
+  }
+
+  /* ── Print ────────────────────────────────────────────────── */
+  @media print {
+    body { background: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .cover { min-height: 100vh; }
+    .cover-icon { animation: none; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     COVER
+════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-icon">🎤</div>
+  <h1>Laberboombox</h1>
+  <div class="subtitle">Dein Sprach-Assistent</div>
+  <div class="cover-tagline">Einfach drücken, sprechen, und der Text erscheint — wie von Zauberhand! ✨</div>
+  <div class="cover-badges">
+    <span class="badge yellow">⚡ Schnell</span>
+    <span class="badge green">🎯 Präzise</span>
+    <span class="badge blue">🤖 KI-gestützt</span>
+    <span class="badge">🇩🇪 Auf Deutsch</span>
+  </div>
+  <div class="version-tag">Betriebsanleitung · Version 2025</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 1 · WAS IST DAS?
+════════════════════════════════════════════════════════════ -->
+<div class="page page-first">
+  <div class="section-label">👋 Einleitung</div>
+  <h2>Was ist die<br>Laberboombox?</h2>
+  <p class="page-intro">Ein kleiner Button, der immer über allen Apps schwebt — egal was du gerade machst.</p>
+
+  <div class="cards">
+    <div class="card yellow" data-accent="🎤">
+      <span class="card-icon">🎤</span>
+      <h3>Du sprichst</h3>
+      <p>Einfach auf den Button tippen und loslegen. Die App nimmt auf, solange du redest.</p>
+    </div>
+    <div class="card blue" data-accent="🤖">
+      <span class="card-icon">🤖</span>
+      <h3>KI versteht dich</h3>
+      <p>Whisper von OpenAI schreibt alles auf. Claude von Anthropic macht den Text hübsch.</p>
+    </div>
+    <div class="card green" data-accent="✍️">
+      <span class="card-icon">✍️</span>
+      <h3>Text erscheint</h3>
+      <p>Der fertige Text wird <span class="highlight">direkt in WhatsApp, Gmail oder jede andere App</span> eingefügt.</p>
+    </div>
+    <div class="card red" data-accent="💰">
+      <span class="card-icon">💰</span>
+      <h3>Supergünstig</h3>
+      <p>30 Sekunden Aufnahme kosten <span class="highlight">0,3 Cent</span>. Für 1 Euro kannst du über 300 Nachrichten diktieren!</p>
+    </div>
+  </div>
+
+  <div class="tip">
+    <span class="tip-icon">💡</span>
+    <div class="tip-text">
+      <strong>Für Kinder erklärt:</strong> Stell dir vor, du hast eine magische Schreibmaschine, der du einfach sagst, was sie schreiben soll — und sie macht das sofort und schickt es ab!
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 2 · EINRICHTUNG
+════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-label">🛠️ Einrichtung</div>
+  <h2>Einmalige<br>Einrichtung</h2>
+  <p class="page-intro">Nur 4 Schritte, dann ist alles bereit! Das machst du nur einmal.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h4>🪟 Overlay-Erlaubnis geben</h4>
+        <p>Die App darf einen Button über anderen Apps anzeigen. Tippe auf „Erlauben" wenn Android danach fragt.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h4>🎤 Mikrofon-Erlaubnis geben</h4>
+        <p>Die App muss deine Stimme aufnehmen können. Auch hier „Erlauben" antippen.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h4>▶️ Floating Button starten</h4>
+        <p>Auf den grünen Start-Button in der App tippen. Der gelbe Mikrofon-Button erscheint am Bildschirmrand.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h4>⌨️ Texteingabe aktivieren</h4>
+        <p>Im letzten Schritt zum Barrierefreiheit-Menü von Android gehen und den „Laberboombox"-Dienst einschalten.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <span class="tip-icon">🔑</span>
+    <div class="tip-text">
+      Danach noch deinen <strong>OpenAI API-Key</strong> in der App eintragen. Den bekommst du kostenlos auf platform.openai.com — der Key sieht aus wie: <strong>sk-proj-abc123...</strong>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 3 · BEDIENUNG
+════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-label">👆 Bedienung</div>
+  <h2>So bedienst<br>du den Button</h2>
+  <p class="page-intro">Der Button sitzt immer am Rand — links oder rechts. So funktionieren die Gesten:</p>
+
+  <div class="gesture-grid">
+    <div class="gesture">
+      <span class="gest-icon">👆</span>
+      <div class="gest-name">Einmal tippen</div>
+      <div class="gest-desc">Aufnahme <strong style="color:#30D158">starten</strong> oder <strong style="color:#FF3B30">stoppen</strong></div>
+    </div>
+    <div class="gesture">
+      <span class="gest-icon">👇</span>
+      <div class="gest-name">Tab antippen</div>
+      <div class="gest-desc">Wenn der Button am Rand schläft: <strong style="color:var(--yellow)">aufwecken!</strong></div>
+    </div>
+    <div class="gesture">
+      <span class="gest-icon">✋</span>
+      <div class="gest-name">Lang drücken</div>
+      <div class="gest-desc">Einstellungs-Menü öffnen (Profil, Emojis, Sprache, Labels)</div>
+    </div>
+    <div class="gesture">
+      <span class="gest-icon">↕️</span>
+      <div class="gest-name">Rauf-/runterziehen</div>
+      <div class="gest-desc">Button an eine andere Stelle verschieben — links oder rechts</div>
+    </div>
+  </div>
+
+  <div class="section-label" style="margin-top:8px">😴 Auto-Schlaf</div>
+  <div class="card" style="margin-bottom:20px" data-accent="💤">
+    <span class="card-icon">💤</span>
+    <h3>Nach 5 Sekunden schläft der Button ein</h3>
+    <p>Wenn du ihn 5 Sekunden nicht benutzt, schrumpft er zu einem kleinen Tab am Rand — so stört er nicht beim Schauen von Videos! Einfach antippen um ihn wieder aufzuwecken.</p>
+  </div>
+
+  <div class="section-label">⏱️ Aufnahmedauer</div>
+  <p style="color:var(--gray);font-weight:700;margin-bottom:14px;">Tippe auf die kleinen Badges unter dem Button um die maximale Aufnahmedauer einzustellen:</p>
+  <div class="timer-row">
+    <div class="timer-pill active">⚡ 10s</div>
+    <div class="timer-pill">30s</div>
+    <div class="timer-pill">90s</div>
+    <div class="timer-pill">3m</div>
+    <div class="timer-pill">5m</div>
+  </div>
+  <div class="tip">
+    <span class="tip-icon">⚡</span>
+    <div class="tip-text">Der <strong>⚡ Mini-Modus (10 Sekunden)</strong> ist perfekt für kurze WhatsApp-Antworten — superscnell und kostet fast nichts!</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 4 · PROFILE & STILE
+════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-label">🎨 Stile</div>
+  <h2>Drei Schreib-<br>stile zur Auswahl</h2>
+  <p class="page-intro">Lang drücken → „Profil" antippen um zwischen den Stilen zu wechseln.</p>
+
+  <div class="profiles">
+    <div class="profile">
+      <div class="profile-tag wa">WA</div>
+      <div class="profile-info">
+        <h4>📱 WhatsApp-Stil</h4>
+        <p>Locker und entspannt. Wie eine Nachricht an Freunde — kurze Sätze, manchmal Emojis, kein steifes Deutsch. Automatisch aktiv wenn du WhatsApp benutzt!</p>
+      </div>
+    </div>
+    <div class="profile">
+      <div class="profile-tag pro">PRO</div>
+      <div class="profile-info">
+        <h4>💼 Professionell</h4>
+        <p>Für Arbeit und Business-E-Mails. Höflich, klar, professionell. Automatisch aktiv für Gmail und Outlook!</p>
+      </div>
+    </div>
+    <div class="profile">
+      <div class="profile-tag form">FOR</div>
+      <div class="profile-info">
+        <h4>📜 Formal</h4>
+        <p>Für Behördenbriefe und offizielle Dokumente. Sehr formell, mit korrekter Anrede und strukturierten Absätzen.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-label">😊 Extras im Menü</div>
+  <div class="cards">
+    <div class="card">
+      <span class="card-icon">😊</span>
+      <h3>Emojis</h3>
+      <p><strong style="color:#fff">Keine</strong> · <strong style="color:#fff">Wenige 🙂</strong> · <strong style="color:#fff">Viele 🎉</strong><br>Die KI wählt selbst, wo Emojis gut passen.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🌐</span>
+      <h3>Sprache</h3>
+      <p>Automatisch · <strong style="color:#fff">DE</strong> · <strong style="color:#fff">EN</strong><br>Erzwinge Deutsch oder Englisch, egal was du sagst.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🏷️</span>
+      <h3>Labels</h3>
+      <p><strong style="color:#fff">AN</strong> · <strong style="color:#fff">AUS</strong><br>Labels wie „Betreff:" oder „Fazit:" am Anfang von Absätzen.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">💡</span>
+      <h3>Vorschau</h3>
+      <p>In den App-Einstellungen aktivierbar: Text erst anzeigen bevor er eingefügt wird.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 5 · BOOM & KOSTEN
+════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-label">💥 Auto-Stop</div>
+  <h2>Das BOOM!<br>Feature</h2>
+  <p class="page-intro">Wenn du zu lange sprichst, stoppt die App automatisch — mit einem Knall! 💥</p>
+
+  <div class="boom-box">
+    <div class="boom-text">BOOM!</div>
+    <div class="boom-desc">
+      Nach der maximalen Aufnahmedauer erscheint dieser Starburst kurz auf dem Bildschirm<br>
+      und die Transkription startet automatisch — kein manuelles Stoppen nötig!
+    </div>
+  </div>
+
+  <div class="tip">
+    <span class="tip-icon">⚠️</span>
+    <div class="tip-text">
+      In den letzten <strong>10 Sekunden</strong> vor dem BOOM! blinkt der Timer abwechselnd <strong style="color:#FF3B30">rot</strong> und <strong style="color:#FF9500">orange</strong> — als Vorwarnung!
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-label">💰 Kosten-Übersicht</div>
+  <h2 style="margin-bottom:20px">Was kostet das?</h2>
+
+  <div class="cards three">
+    <div class="card green" data-accent="🎙️">
+      <span class="card-icon">⚡</span>
+      <h3>10 Sekunden</h3>
+      <p><strong style="color:var(--green);font-size:22px">0,1 Cent</strong><br>Mini-Modus</p>
+    </div>
+    <div class="card blue" data-accent="🎙️">
+      <span class="card-icon">⏱️</span>
+      <h3>30 Sekunden</h3>
+      <p><strong style="color:var(--blue);font-size:22px">0,3 Cent</strong><br>Standard</p>
+    </div>
+    <div class="card yellow" data-accent="🎙️">
+      <span class="card-icon">🕐</span>
+      <h3>5 Minuten</h3>
+      <p><strong style="color:var(--yellow);font-size:22px">3 Cent</strong><br>Lange Aufnahme</p>
+    </div>
+  </div>
+
+  <div class="tip">
+    <span class="tip-icon">🎯</span>
+    <div class="tip-text">
+      Mit <strong>1 Euro Guthaben</strong> kannst du rund <strong>330 Aufnahmen à 30 Sekunden</strong> machen — also mehrere Monate normaler Nutzung! Guthaben aufladen unter: <strong>platform.openai.com/settings/organization/billing</strong>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-label">📊 Verbrauch einsehen</div>
+  <div class="card" data-accent="📊">
+    <span class="card-icon">📊</span>
+    <h3>Kosten-Tracker in der App</h3>
+    <p>Die App zeigt dir in den Einstellungen, wie viel du ungefähr ausgegeben hast — mit Reset-Button für jeden Monat. Genaue OpenAI-Abrechnung unter: <strong style="color:#fff">platform.openai.com/usage</strong></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 6 · FAQ
+════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-label">❓ Häufige Fragen</div>
+  <h2>Fragen &amp;<br>Antworten</h2>
+  <p class="page-intro">Die häufigsten Fragen — einfach erklärt!</p>
+
+  <div class="faq">
+    <div class="faq-item">
+      <div class="faq-q">🤔 Der Button ist weg — wo ist er?</div>
+      <div class="faq-a">Nach 5 Sekunden schläft der Button ein und schrumpft zu einem kleinen Tab am Bildschirmrand (gelb). Einfach antippen und er wacht wieder auf!</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">📱 Warum funktioniert es in Gmail nicht?</div>
+      <div class="faq-a">Gmail hat eine besondere Technik (WebView), in die kein Text direkt eingefügt werden kann. Der Text landet in der Zwischenablage — einfach im Textfeld lang drücken und „Einfügen" tippen!</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">🌍 Kann ich auch Englisch sprechen?</div>
+      <div class="faq-a">Ja! Im Menü (lang drücken) unter „Sprache" auf EN wechseln. Oder auf Auto lassen — dann erkennt Whisper die Sprache automatisch.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">✅ Der Text kommt ohne Grammatik-Korrektur an</div>
+      <div class="faq-a">Kein Anthropic API-Key eingetragen? Dann läuft nur Whisper-Transkription ohne KI-Korrektur. Key in der App unter „Anthropic API-Key" eintragen.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">💸 Wie viel Geld brauche ich zum Starten?</div>
+      <div class="faq-a">5 Euro bei OpenAI aufladen reicht für viele Monate normaler Nutzung. Den genauen Verbrauch siehst du unter platform.openai.com/usage.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">🔄 Kann ich die App aktualisieren ohne alles neu einzurichten?</div>
+      <div class="faq-a">Ja! Die APK ist immer mit derselben Signatur signiert. Einfach neue APK installieren — alle Einstellungen und API-Keys bleiben erhalten!</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">📍 Kann ich den Button von rechts nach links verschieben?</div>
+      <div class="faq-a">Ja! Einfach den Button anfassen, irgendwo hinziehen und loslassen — er schnappt automatisch an den nächsten Rand (links oder rechts). Die Position wird gespeichert.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     BACK COVER
+════════════════════════════════════════════════════════════ -->
+<div class="backcover">
+  <div style="font-size:80px;margin-bottom:20px">🎤✨</div>
+  <h2>Viel Spaß beim<br>Diktieren!</h2>
+  <p style="font-size:18px;margin-top:12px">Einfach drücken und sprechen — die Laberboombox erledigt den Rest.</p>
+  <div style="margin-top:40px;color:var(--border);font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase">
+    Laberboombox · Privatnutzung · 2025
+  </div>
+</div>
+
+</body>
+</html>
