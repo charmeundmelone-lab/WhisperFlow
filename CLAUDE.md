@@ -3,12 +3,12 @@
 ## Was diese App ist (aktueller Stand)
 
 **App-Name:** Laberboombox (Package bleibt `de.minitraxx.whisperflow`)
-**Letzter stabiler Build:** commit `baaae14` — bestätigt funktionierend ✓
+**Letzter stabiler Build:** commit `085ed8c` auf `main` — bestätigt funktionierend ✓
 
 Die App ist ein **Floating-Button-Diktierwerkzeug**:
 
 1. Floating Button tippen → Aufnahme startet
-2. Nochmal tippen (oder Finger loslassen im Walkie-Talkie-Modus) → Aufnahme stoppt
+2. Nochmal tippen → Aufnahme stoppt
 3. OpenAI Whisper transkribiert die Aufnahme
 4. Claude Haiku korrigiert Grammatik & Stil (je nach App/Profil)
 5. Text wird direkt in das aktive Textfeld der Vordergrund-App eingefügt
@@ -20,11 +20,42 @@ Zielgruppe: 1–2 Personen (Privatnutzung), primär auf Deutsch.
 ## Repo & Branch-Regeln — KRITISCH
 
 - **Repo:** `charmeundmelone-lab/WhisperFlow`
-- **Immer auf `main` pushen** — niemals Feature-Branches erstellen
-- CI baut automatisch bei jedem Push auf `main`
+- **Entwicklung immer auf `main` pushen** — CI baut nur bei Push auf `main`
 - APK landet auf Branch `apk-dist` (force-push durch CI): `app-debug.apk` + `app-debug-<sha>.apk`
-- **APK-Lieferung:** `git fetch origin apk-dist && git show FETCH_HEAD:app-debug.apk > /tmp/app-debug.apk` — dann Datei in den Chat schicken. Azure-Blob-URLs sind vom Proxy geblockt, lokales `gradle assembleDebug` schlägt fehl (dl.google.com geblockt).
-- **Hinweis:** Remote-Branch `claude/android-project-setup-tqy5h9` existiert noch auf GitHub (tot, manuell löschbar). Löst keinen CI-Trigger aus.
+- **APK-Lieferung:**
+  ```bash
+  git fetch origin apk-dist
+  git show FETCH_HEAD:app-debug.apk > /tmp/app-debug.apk
+  # Dann SendUserFile mit /tmp/app-debug.apk
+  ```
+
+### Session-Feature-Branch-Problem (jede neue Claude-Session betroffen)
+
+Claude Code im Web erstellt automatisch einen Feature-Branch (z.B. `claude/xyz`).
+CI baut aber nur auf `main`. **Fix nach jedem Commit:**
+
+```bash
+git fetch origin main
+git rebase origin/main
+git push origin HEAD:main
+```
+
+Wenn das mit "non-fast-forward" scheitert (weil main schon weiter ist):
+```bash
+git fetch origin main && git rebase origin/main && git push origin HEAD:main
+```
+
+### Stop-Hook "Unverified commits" — Fix
+
+```bash
+git config user.email noreply@anthropic.com
+git config user.name Claude
+git rebase --exec "git commit --amend --no-edit --reset-author" origin/<feature-branch-name>
+git push --force-with-lease origin <feature-branch-name>
+```
+
+Der Hook prüft `git log upstream..HEAD` auf unsigned commits (`%G? == N`).
+Nach `--reset-author` sind die Commits korrekt signiert.
 
 ---
 
@@ -69,7 +100,7 @@ app/src/main/java/de/minitraxx/whisperflow/
 │   └── WhisperAccessibilityService.kt # Text-Injection in fremde Apps
 ├── api/
 │   ├── WhisperClient.kt               # OpenAI Whisper API
-│   ├── ClaudeClient.kt                # Anthropic Claude API (wraps text in <diktat> tags)
+│   ├── ClaudeClient.kt                # Anthropic Claude API (max_tokens: 2500)
 │   └── StylePrompts.kt                # Drei Stil-Prompts (WhatsApp, Professionell, Formal)
 ├── util/
 │   └── CostTracker.kt                 # Geschätzte API-Kostenerfassung
@@ -77,6 +108,9 @@ app/src/main/java/de/minitraxx/whisperflow/
     └── Theme.kt                       # Dark Theme
 app/keystore/debug.jks                 # Persistente APK-Signatur
 app/src/main/res/mipmap-*/             # App-Icons (Boombox-Charakter, weiße Lineart auf #2C2C2F)
+docs/
+├── betriebsanleitung.html             # Vollständige Bedienungsanleitung (6 Seiten, illustriert)
+└── button-guide.html                  # Einseitige Button-Kurzanleitung (druckbar als PDF)
 ```
 
 ---
@@ -85,31 +119,36 @@ app/src/main/res/mipmap-*/             # App-Icons (Boombox-Charakter, weiße Li
 
 | Feature | Details |
 |---------|---------|
-| **Floating Button** | `TYPE_APPLICATION_OVERLAY`, frei verschiebbar, überlebt App-Wechsel |
-| **Edge-Tab** | Button an Bildschirmrand ziehen (äußere 25%) → schrumpft via `scaleX(0.5f)` zum Halbkreis-Tab. Antippen → federt mit `OvershootInterpolator(1.3f)` zurück. Pivot liegt am Rand-Pixel, kein negativer X-Wert (Android klemmt auf 0). |
-| **Walkie-Talkie-Modus** | Langer Druck (500ms) → Aufnahme läuft solange Finger gehalten → Loslassen = Stop & Transkription. Funktioniert auch wenn Finger leicht driftet (isDragging && isWalkieTalkieMode Case). |
-| **Profil-Swipe** | Finger nach oben wischen auf dem Button → zyklisch Profil wechseln. Im when-Block VOR isNearEdge() prüfen, da Button bei x=24 immer in der Edge-Zone ist. |
-| **Kurztippen** | Aufnahme an/aus (Toggle) |
-| **Aufnahme** | `MediaRecorder`, M4A/AAC, 128kbps, 44,1kHz |
-| **Status-Overlay** | Live-Timer während Aufnahme (rot), "Transkribiere...", "Korrigiere [Profil]..." |
-| **Whisper-Transkription** | `multipart/form-data` an OpenAI, Modell `whisper-1` |
-| **Claude-Stilkorrektur** | `claude-haiku-4-5-20251001`, max 1024 Tokens, System-Prompt je nach Profil. Diktat-Text wird in `<diktat>...</diktat>` Tags gewrappt → Claude antwortet nicht auf Fragen im Text |
-| **Drei Stil-Profile** | WhatsApp (locker), Professionell (Business), Formal (Behörden/Briefe) |
-| **Auto-App-Erkennung** | `capturedPackage` wird bei Aufnahme-START gespeichert → korrekte Profilerkennung auch wenn App gewechselt wird. WhatsApp → WhatsApp-Profil; Gmail/Outlook/etc. → Professionell; sonst → User-gewähltes Profil |
-| **Text-Injection (WhatsApp)** | `findBottomMostEditable()` findet Compose-Feld zuverlässig auch wenn FOCUS_INPUT verloren (z.B. nach App-Wechsel). `ACTION_SET_TEXT` mit nur `text` (kein Append) — kein "Nachricht"-Prefix vom WhatsApp-Hint-Text. |
-| **Text-Injection Fallback** | Clipboard + `ACTION_PASTE` wenn `ACTION_SET_TEXT` false zurückgibt |
-| **Prefix-Stripping** | `stripDictationPrefix()` entfernt "Nachricht:", "Text:", etc. falls Whisper oder Claude Prefix hinzufügt |
-| **Füllwort-Entfernung** | "ähm", "äh", "hm", "ehm" werden aus Transkript entfernt |
-| **Punktuation per Sprache** | "Punkt", "Komma", "Ausrufezeichen" etc. werden in Satzzeichen umgewandelt |
-| **API-Keys** | Werden in der App einmalig eingetragen und in SharedPreferences gespeichert. NIEMALS in BuildConfig/APK — verhindert GitHub-Scanning-Sperren. |
-| **Budget-Tracking** | Geschätzte Kosten (Whisper: $0.006/min, Claude: Pauschale), konfigurierbares Limit, Reset-Button |
-| **Budget-Guard** | Aufnahme wird blockiert wenn Limit überschritten |
-| **Automatischer Service-Start** | Startet sich selbst bei `onResume()` wenn Overlay + Mikrofon erlaubt sind |
-| **Persistentes Keystore** | Gleiche APK-Signatur für alle Builds → kein Deinstallieren bei Updates |
-| **App-Icon** | Tanzender Boombox-Charakter, weiße Lineart auf dunklem Hintergrund (#2C2C2F), alle Mipmap-Dichten + adaptive icon |
-| **BOOM! Auto-Stop** | Nach 90s Aufnahme: MediaRecorder stoppt, 10s Vorwarnung (roter Timer blinkt orange/rot), danach Comic-Starburst-Overlay (gelb #FFD60A, 16-zackig) mit rotem "BOOM!" — 1,5s Anzeige → automatische Transkription. `triggerBoomStop()` + `showBoomOverlay()` in FloatingButtonService. `isBoomPending` Flag verhindert manuelles Toggle während BOOM läuft. |
-| **Labels-Toggle** | 4. Button im Radialmenü (AN/AUS). Steuert `headingsEnabled` Boolean in SharedPreferences (`KEY_HEADINGS_ENABLED`). Wird an `StylePrompts.get()` weitergegeben → WA: lockere Labels ("Ach ja:", "Noch kurz:"), Professional: Business-Labels ("Betreff:", "Fazit:"), Formal: Dokumenten-Labels ("Sachverhalt:", "Bitte:"). Fließtext bleibt IMMER Fließtext — Claude darf niemals Listen oder Aufzählungen einführen. |
-| **Emoji-Modi** | "keine" = 0 Emojis. "wenige" = 1–2 Emojis nach eigenem redaktionellem Ermessen (nicht erzwingen, nicht verweigern). "viele" = 5–8 Emojis, Platzierung variiert (mitten im Satz, Satzanfang, zwischen Gedanken — NICHT vorhersehbar immer ans Absatzende). |
+| **Floating Button (Option A)** | Immer an linkem oder rechtem Bildschirmrand (`x=0` oder `x=sw-buttonSize`). Drag → `snapToNearestEdge()` mit `DecelerateInterpolator`. Seite wird in `KEY_EDGE_SIDE` gespeichert. |
+| **Auto-Minimize (5s)** | Nach 5s Inaktivität (kein Recording, kein Menü): `collapseToEdge()` → gelber Tab-Streifen (16dp×64dp). Antippen → `expandFromEdge()` mit `OvershootInterpolator(1.3f)`. `inactivityHandler` wird bei Recording und Menü gecancelt. |
+| **Landscape-Handling** | `onConfigurationChanged()` repositioniert Button/Tab in neuer Orientierung. Requires `android:configChanges="orientation|screenSize|screenLayout"` im Manifest für FloatingButtonService. |
+| **Kurztippen** | Aufnahme an/aus (Toggle). Kein Walkie-Talkie-Modus mehr. |
+| **Langes Drücken (500ms)** | Öffnet Radialmenü (nur wenn nicht am Edge-Tab und nicht während Aufnahme). |
+| **Radialmenü** | 4 Punkte: Profil (WA/PRO/FOR), Emojis (🙂/🎉/—), Sprache (🌐/DE/EN), Labels (AN/AUS). Fächert zur Bildschirmmitte auf. Schließt nach 2,5s automatisch. |
+| **Aufnahme** | `MediaRecorder`, M4A/AAC, 128kbps, 44,1kHz. Pill-Animation beim Start/Stop (Breite ändert sich). Rechts-Edge: `params.x = sw - w` damit Pill von rechts wächst. |
+| **Status-Overlay** | Live-Timer + Wellenform während Aufnahme (rot), "Transkribiere...", "Korrigiere [Profil]...". Position: Innenseite des Buttons (links wenn rechts-edge, rechts wenn links-edge). |
+| **Duration Badge (unten)** | Unter dem Button: zeigt aktuelle Maximaldauer (30s/90s/3m/5m). Tippen zyklisch wechseln. |
+| **Mini-Badge ⚡ (oben)** | Über dem Button: aktiviert 10s-Schnellmodus. Leuchtet gelb wenn aktiv. |
+| **Emoji-Toggle-Badge (Seite)** | An der Innenseite des Buttons (gegenüber dem Rand). "🙂" gelb = Emojis an (EMOJI_FEW), "—" grau = Emojis aus (EMOJI_NONE). Tippen togglet. Bounce-Animation bei Tap. |
+| **BOOM! Auto-Stop** | Nach konfigurierbarer Maximaldauer (Standard 30s, max 90s per Preset). 10s Vorwarnung: Timer blinkt orange/rot. Dann: Comic-Starburst (16-zackig, #FFD60A) + "BOOM!" (rot) für 1,5s → automatische Transkription. `isBoomPending` verhindert Toggle während BOOM. |
+| **Whisper-Transkription** | `multipart/form-data` an OpenAI, Modell `whisper-1`. Kosten: $0.006/min sekundengenau. 30s = 0,3 Cent. |
+| **Claude-Stilkorrektur** | `claude-haiku-4-5-20251001`, max_tokens: 2500, System-Prompt je nach Profil. Diktat-Text in `<diktat>...</diktat>` Tags → Claude antwortet nicht auf Fragen im Text. |
+| **Drei Stil-Profile** | WhatsApp (locker, kein Umformulieren), Professionell (Business, kein Umformulieren), Formal (Behörden — nur Wort-für-Wort-Ersatz, kein Satzbau-Umbau). |
+| **StylePrompts — ABSOLUT VERBOTEN zuerst** | Jeder Prompt beginnt mit ABSOLUT VERBOTEN-Block. Enthält explizit: "Sätze umformulieren, Wörter durch Synonyme ersetzen, oder den Stil des Sprechers verändern." Dann "Was du NIEMALS tust" mit konkreten Verboten. Formal: Darf einzelne Wörter formalisieren, NICHT Satzstruktur ändern. |
+| **Auto-App-Erkennung (gefixt)** | `WhisperAccessibilityService.onAccessibilityEvent()` updatet `activePackage` NUR bei `TYPE_WINDOW_STATE_CHANGED`. Filtert eigene Package (`de.minitraxx.whisperflow`) und System-Pakete (`com.android.*`, `android`) heraus. `capturedPackage` wird bei `startRecording()` gespeichert → korrekt auch wenn App gewechselt wurde. |
+| **Text-Injection (WhatsApp)** | `findBottomMostEditable()` findet Compose-Feld zuverlässig auch wenn FOCUS_INPUT verloren. `ACTION_SET_TEXT` mit nur `text` → kein "Nachricht"-Prefix. |
+| **Text-Injection Fallback** | Clipboard + `ACTION_PASTE` wenn `ACTION_SET_TEXT` false zurückgibt. |
+| **Labels-Toggle** | Im Radialmenü. Steuert `headingsEnabled` in SharedPreferences. WA: "Ach ja:", "Noch kurz:". Professionell: "Betreff:", "Fazit:". Formal: "Sachverhalt:", "Bitte:". Fließtext bleibt IMMER Fließtext. |
+| **Emoji-Modi** | `none`: 0 Emojis. `few`: 1–2 nach eigenem Ermessen (nicht erzwingen). `many`: 5–8, variiert platziert. Toggle-Badge schaltet nur `none`↔`few`. Radialmenü erlaubt auch `many`. |
+| **Füllwort-Entfernung** | "ähm", "äh", "hm", "ehm" aus Transkript entfernen (vor Claude-Korrektur). |
+| **Punktuation** | "Punkt", "Komma", "Ausrufezeichen", "Absatz" etc. → Satzzeichen/Newlines. |
+| **API-Keys** | In SharedPreferences, niemals in BuildConfig. Mit `.trim()` lesen/schreiben. |
+| **Budget-Tracking** | Geschätzte Kosten (Whisper: $0.006/min, Claude: Pauschale), Limit, Reset. |
+| **Persistentes Keystore** | Gleiche APK-Signatur → keine Deinstallation bei Updates. |
+| **App-Icon** | Tanzender Boombox-Charakter, weiße Lineart auf #2C2C2F, alle Mipmap-Dichten + adaptive icon. |
+| **Pulse Ring** | Roter Pulsring während Aufnahme (eigenes Overlay-Fenster, animiert). |
+| **Korrektur-Vorschau** | Optional (KEY_PREVIEW_ENABLED): Zeigt korrigierten Text vor dem Einfügen. 10s Timeout. |
+| **Dokumentation** | `docs/betriebsanleitung.html`: vollständige illustrierte Bedienungsanleitung. `docs/button-guide.html`: einseitige Kurzanleitung (A4, dunkel, druckbar). |
 
 ---
 
@@ -119,13 +158,6 @@ app/src/main/res/mipmap-*/             # App-Icons (Boombox-Charakter, weiße Li
 Gmail Compose verwendet WebView. `ACTION_SET_TEXT` und `ACTION_PASTE` auf AccessibilityNodes
 funktionieren dort nicht. Text landet in der **Zwischenablage** — der Nutzer muss manuell
 lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
-
-### `GLOBAL_ACTION_PASTE` existiert nicht
-Wurde versucht (Build #16) → Compile-Fehler. Diese Konstante gibt es in der Android API nicht.
-
-### WhatsApp-Injection funktioniert erst nach erstem WhatsApp-Start
-Wenn WhatsApp noch nie geöffnet war seit dem Laberboombox-Start: kein Problem mehr seit Build #38
-(`findBottomMostEditable` findet das Compose-Feld zuverlässig ohne FOCUS_INPUT).
 
 ---
 
@@ -146,107 +178,83 @@ Formal-Modus    →  Lokal whisper-tiny-int8 (kostenlos) + Claude immer
 **Technischer Plan:**
 - Library: `com.microsoft.onnxruntime:onnxruntime-android`
 - Modell: `whisper-tiny-int8` (~40MB, einmalig beim ersten App-Start herunterladen, in `filesDir` speichern)
-- Neue Datei: `api/WhisperLocalClient.kt` (ersetzt `WhisperClient.kt` für kurze Aufnahmen)
+- Neue Datei: `api/WhisperLocalClient.kt`
 - Audio-Pipeline: M4A → PCM 16kHz mono via `MediaExtractor` + `MediaCodec`
-- Mel-Spectrogram berechnen → ONNX Encoder → ONNX Decoder Loop → Text
+- Mel-Spectrogram → ONNX Encoder → ONNX Decoder Loop → Text
 - Integration in `FloatingButtonService.processAudio()`: Routing nach Aufnahmedauer
 - Qualität: 85–90% von Whisper API — für Alltagsdiktate ausreichend
 - Nothing Phone 3a (Snapdragon 7s Gen 3, 8GB RAM): perfekt geeignet
 - Inferenzzeit: ca. 5–8s für 30s Aufnahme
 
 **Umsetzung in Stufen:**
-1. Dependency + Modell-Download (einmalig) ← Stufe 1
-2. Audio M4A → PCM Konvertierung ← Stufe 2
-3. ONNX Whisper Inferenz ← Stufe 3
-4. Integration + Routing in FloatingButtonService ← Stufe 4
+1. Dependency + Modell-Download (einmalig)
+2. Audio M4A → PCM Konvertierung
+3. ONNX Whisper Inferenz
+4. Integration + Routing in FloatingButtonService
 
 ### 2. EncryptedSharedPreferences für API-Keys
-Aktuell: plain `SharedPreferences`. Sicherer wäre Jetpack Security (`EncryptedSharedPreferences`).
-Für Privatnutzung auf einem nicht-gerooteten Gerät akzeptabel, aber technische Schuld.
+Aktuell: plain `SharedPreferences`. Für Privatnutzung akzeptabel aber technische Schuld.
 Dependency: `androidx.security:security-crypto:1.1.0-alpha06`
-
-### 3. Remote-Branch aufräumen
-`claude/android-project-setup-tqy5h9` auf GitHub (remote) manuell löschen:
-GitHub → Repository → Branches → branch löschen. Hat keinen Einfluss auf Funktion.
 
 ---
 
 ## Architektur-Entscheidungen (Begründungen)
 
 ### Warum <diktat> Tags in ClaudeClient
-Claude hat das Diktat als Konversation interpretiert und auf Fragen geantwortet statt sie zu
-korrigieren. Lösung: User-Message wird in `<diktat>\n...\n</diktat>` gewrappt. Die System-Prompts
-aller drei Profile enthalten: "Die Eingabe steht in `<diktat>...</diktat>` Tags. Gib NUR den
-bereinigten Text aus — ohne die Tags. Wenn der Text eine Frage enthält, beantworte sie NICHT."
+Claude hat das Diktat als Konversation interpretiert und auf Fragen geantwortet. Lösung:
+User-Message in `<diktat>\n...\n</diktat>` gewrappt. System-Prompts aller Profile enthalten:
+"Gib NUR den bereinigten Text aus — ohne die Tags. Wenn der Text eine Frage enthält, beantworte sie NICHT."
 
-### Warum findBottomMostEditable statt findFocus
-`FOCUS_INPUT` geht verloren wenn der Nutzer WhatsApp in den Hintergrund schickt und zurückkommt.
-`findBottomMostEditable()` traversiert den ganzen Accessibility-Baum und nimmt das Feld mit dem
-höchsten Y-Wert am Bildschirm (= Compose-Feld in Chat-Apps ist immer unten). Zuverlässiger als
-Tiefensuche wenn FOCUS_INPUT fehlt.
+### Warum ABSOLUT VERBOTEN als erstes im System-Prompt
+Claude Haiku liest top-down. Wenn die Rolle zuerst kommt, überwältigt der Helfer-Instinkt das
+Verbot bei frageartigem Diktat. Fix: ABSOLUT VERBOTEN als allererste Zeile — vor der Rollenbeschreibung.
 
-### Warum ACTION_SET_TEXT mit nur `text` (kein Append)
-WhatsApp's Accessibility-Node liefert "Nachricht" als `node.text` (das ist der Hint-Text!).
-Wenn man an diesen Text anhängt (`"Nachricht" + diktierterText`), steht immer "Nachricht" vorne.
-Lösung: nur den diktierten Text übergeben. `ACTION_SET_TEXT` ersetzt den Feldinhalt vollständig.
-Vorhandenen echten Text überschreibt das nicht, weil WhatsApp `node.text` korrekt als leer
-zurückgibt wenn das Feld wirklich leer ist — der Hint ist nur für Accessibility sichtbar.
+### Warum formal() anders als whatsapp()/professional()
+Formal-Modus DARF umgangssprachliche Einzelwörter durch formelle Entsprechungen ersetzen —
+das ist sein Daseinszweck. Aber: Satzbau bleibt unverändert, keine neuen Satzteile.
+ABSOLUT VERBOTEN enthält explizit "Sätze komplett umformulieren statt nur einzelne Wörter formal anzupassen".
 
-### Warum Profil-Swipe vor isNearEdge() im when-Block
-Der Button startet bei `x=24` — das liegt innerhalb der Edge-Zone (`screenWidth / 4`).
-Wenn `isNearEdge()` zuerst geprüft wird, wird jeder Swipe als Edge-Collapse interpretiert.
-Reihenfolge im when-Block: `swipeDy < -80` zuerst, dann `isNearEdge()`.
-
-### Warum isDragging && isWalkieTalkieMode separater Case
-Wenn der Nutzer im Walkie-Talkie-Modus den Finger minimal driftet, setzt `ACTION_MOVE`
-`isDragging = true`. Der nachfolgende `isDragging -> {}` Catch-All hat dann die Aufnahme
-nie gestoppt. Fix: `isDragging && isWalkieTalkieMode` als eigener Case VOR `isDragging -> {}`.
-
-### Warum scaleX statt negativer X-Koordinate für Edge-Tab
-Android's `WindowManager` klemmt Overlay-Fenster auf `x ≥ 0`. Negative X-Werte in
-`LayoutParams.x` werden ignoriert — der Button bleibt bei x=0 stehen, ohne sichtbar
-zur Seite zu gleiten. Deshalb: `scaleX(0.5f)` mit `pivotX` am Rand-Pixel erzeugt den
-Halbkreis-Effekt zuverlässig auf allen Android-Versionen (Build #20, Commit `5f0af8f`).
+### Warum TYPE_WINDOW_STATE_CHANGED in WhisperAccessibilityService
+`onAccessibilityEvent` feuert bei JEDER UI-Interaktion (Scroll, Fokus, etc.) — auch für die
+eigene App. Das hat `activePackage` polluted. Fix: nur `TYPE_WINDOW_STATE_CHANGED` (echter
+App-Wechsel), plus Filter für eigene Package und Android-System-Pakete.
 
 ### Warum capturedPackage statt activePackage bei processAudio
-`WhisperAccessibilityService.activePackage` enthält zur Zeit der Verarbeitung (nach Whisper + Claude)
-möglicherweise schon eine andere App (Nutzer hat gewechselt). Deshalb wird die Paket-Info
-bei `startRecording()` in `capturedPackage` gespeichert und in `processAudio()` ausgelesen.
+`activePackage` enthält zur Verarbeitungszeit (nach Whisper + Claude) möglicherweise eine
+andere App. `capturedPackage` wird bei `startRecording()` gespeichert.
 
-### Warum plain SharedPreferences (nicht EncryptedSharedPreferences)
-Einfachheit. Für 1–2 Nutzer auf privaten Geräten ausreichend. Kann jederzeit migriert werden.
+### Warum Button immer am Rand (Option A)
+Freie Positionierung führte dazu, dass der Button Videos überdeckte. Mit Option A
+bleibt er immer am Rand, minimiert sich nach 5s, stört niemanden.
 
-### BOOM! Auto-Stop nach 90 Sekunden
-`timerRunnable` zählt Sekunden hoch. Bei `recordingSeconds >= MAX_RECORDING_SECONDS (90)` wird
-`triggerBoomStop()` aufgerufen statt normal zu stoppen. MediaRecorder stoppt sofort, `isBoomPending = true`
-verhindert manuellen Toggle. `showBoomOverlay()` zeichnet 16-zackigen Starburst (Canvas, gelb #FFD60A,
-Kontur #CC7A00) + rotes "BOOM!" (Outline #660000, Fill #FF2200) als anonyme View-Unterklasse.
-Scale-in Animation mit `OvershootInterpolator(1.8f)`. Nach 1500ms: `hideBoomOverlay()` + normale
-Transkriptions-Pipeline startet. `amplitudeRunnable` blinkt die letzten 10s rot/orange als Vorwarnung.
+### Warum scaleX für Edge-Tab (historisch, durch Option A ersetzt)
+Android's WindowManager klemmt Overlay auf `x ≥ 0`. Negative X-Werte werden ignoriert.
+Deshalb: Breite auf 16dp reduzieren statt den Button seitlich zu schieben.
 
-### Labels-Toggle — Warum Fließtext-Priorität
-Erster Versuch des WhatsApp-Labels-Prompts enthielt "kreative Elemente, Spiegelstriche" →
-Claude hat Texte in Listen umgebaut statt nur Labels voranzustellen. Fix: alle drei Modi
-bekamen explizit "Fließtext bleibt Fließtext, niemals in Listen oder Aufzählungen umbauen".
-Die Labels-Anweisung wird als letzter Listenpunkt in den "Was du tust"-Block eingebettet:
-`${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}` am Ende der jeweiligen Aufzählung.
+### Warum findBottomMostEditable statt findFocus
+`FOCUS_INPUT` geht verloren wenn WhatsApp in den Hintergrund geht. `findBottomMostEditable()`
+traversiert den Accessibility-Baum und nimmt das Feld mit höchstem Y-Wert (= immer das
+Compose-Feld in Chat-Apps). Zuverlässiger als Tiefensuche.
+
+### Warum ACTION_SET_TEXT mit nur `text` (kein Append)
+WhatsApp's Node liefert "Nachricht" als `node.text` (das ist der Hint-Text). Anhängen würde
+"Nachricht" + Diktat ergeben. Lösung: nur Diktat übergeben, `ACTION_SET_TEXT` ersetzt vollständig.
+
+### Warum Labels-Toggle Fließtext-Priorität
+Erster Versuch enthielt "kreative Elemente, Spiegelstriche" → Claude baute Listen.
+Fix: alle drei Profile bekamen "Fließtext bleibt Fließtext, niemals Listen oder Aufzählungen".
+
+### Warum plain SharedPreferences
+Einfachheit. Für 1–2 Nutzer auf privaten Geräten ausreichend.
 
 ### Verhaltensregel für Claude-Instanz: Niemals ohne Bestätigung implementieren
-Der User hat explizit gesagt: "Das wird voreilig gehandelt. Ich möchte nicht, dass Du einfach
-so anfängst, Sachen zu verändern." — Immer erst vorschlagen und Bestätigung abwarten, bevor
-Code-Änderungen vorgenommen werden. Optionen anbieten, nicht automatisch umsetzen.
-
-### Warum ABSOLUT VERBOTEN als erstes im System-Prompt steht
-Claude Haiku liest Anweisungen von oben nach unten. Wenn die Rolle ("Du bist ein Bereiniger")
-zuerst kommt und der Verbot-Block weiter unten, überwältigt der Helfer-Instinkt das Verbot bei
-frageartigem Diktat-Inhalt. Fix: ABSOLUT VERBOTEN-Block als allererste Zeile jedes Prompts —
-vor der Rollenbeschreibung — damit Claude die Kernregel verinnerlicht bevor er den Kontext liest.
+User: "Das wird voreilig gehandelt. Ich möchte nicht, dass Du einfach so anfängst, Sachen zu
+verändern." — Immer erst Optionen vorschlagen und Bestätigung abwarten.
 
 ---
 
 ## Setup-Flow (aus Nutzersicht, MainActivity)
 
-Die App zeigt 4 Setup-Schritte:
 1. **Overlay-Berechtigung** — Button über anderen Apps anzeigen
 2. **Mikrofon-Berechtigung** — Sprachaufnahme
 3. **Floating Button starten** — startet `FloatingButtonService`
@@ -270,16 +278,11 @@ Push auf main
         app-debug-<sha>.apk    ← versioniert
 ```
 
-**APK in Chat schicken (funktionierender Weg):**
+**APK in Chat schicken:**
 ```bash
 git fetch origin apk-dist
 git show FETCH_HEAD:app-debug.apk > /tmp/app-debug.apk
-# Dann SendUserFile mit /tmp/app-debug.apk
-```
-
-APK-Download-Link (permanenter Link, immer neueste Version):
-```
-https://github.com/charmeundmelone-lab/WhisperFlow/releases/latest/download/app-debug.apk
+# SendUserFile /tmp/app-debug.apk
 ```
 
 ---
@@ -296,7 +299,10 @@ Alle in `FloatingButtonService.companion object`:
 | `KEY_STYLE_PROFILE` | `style_profile` | `whatsapp` / `professional` / `formal` |
 | `KEY_LANGUAGE` | `whisper_language` | Whisper-Sprache (leer = auto) |
 | `KEY_PREVIEW_ENABLED` | `preview_enabled` | Vorschau-Overlay vor Einfügen |
-| `KEY_HEADINGS_ENABLED` | `headings_enabled` | Labels/Überschriften AN (true) / AUS (false), default true |
+| `KEY_HEADINGS_ENABLED` | `headings_enabled` | Labels AN (true) / AUS (false), default true |
+| `KEY_EMOJI_LEVEL` | `emoji_level` | `none` / `few` / `many`, default `few` |
+| `KEY_MAX_DURATION` | `max_duration` | Sekunden: 10/30/90/180/300, default 30 |
+| `KEY_EDGE_SIDE` | `edge_side` | Boolean: true = rechts, false = links, default true |
 
 ---
 
@@ -306,21 +312,22 @@ Alle in `FloatingButtonService.companion object`:
 - `POST https://api.openai.com/v1/audio/transcriptions`
 - `multipart/form-data`: `file` (M4A), `model=whisper-1`
 - Auth: `Authorization: Bearer <KEY>`
+- Kosten: $0.006/min, sekundengenau. 30s = 0,3 Cent. 90s = 0,9 Cent. 5min = 3 Cent.
 
 ### Anthropic Claude
 - `POST https://api.anthropic.com/v1/messages`
 - Auth: `x-api-key: <KEY>` + `anthropic-version: 2023-06-01`
-- Modell: `claude-haiku-4-5-20251001`, `max_tokens: 1024`
+- Modell: `claude-haiku-4-5-20251001`, `max_tokens: 2500`
 - System-Prompt aus `StylePrompts.kt`
-- User-Message: `<diktat>\n{rohesTranskript}\n</diktat>` (kein Label/Präfix außerhalb der Tags!)
+- User-Message: `<diktat>\n{rohesTranskript}\n</diktat>`
 
 ---
 
 ## Wichtige Coding-Regeln
 
-- **Kein `!!`-Operator** im Produktionscode — immer `?.` oder `runCatching`
+- **Kein `!!`-Operator** — immer `?.` oder `runCatching`
 - API-Keys immer mit `.trim()` lesen und schreiben
 - Alle Overlay-UI-Änderungen auf Main-Thread (`Handler(Looper.getMainLooper()).post { }`)
 - `windowManager.updateViewLayout` immer in `runCatching { }` wrappen
-- Commits direkt auf `main` — niemals Feature-Branches
-- APK-Lieferung: aus `apk-dist` Branch via `git show FETCH_HEAD:app-debug.apk` holen
+- Nach Commit: `git fetch origin main && git rebase origin/main && git push origin HEAD:main`
+- APK-Lieferung: aus `apk-dist` via `git show FETCH_HEAD:app-debug.apk`
