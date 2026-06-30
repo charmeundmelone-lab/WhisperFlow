@@ -14,11 +14,11 @@ object ClaudeClient {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
         .build()
 
     private const val MODEL = "claude-haiku-4-5-20251001"
-    private const val MAX_TOKENS = 2500
+    private const val MAX_TOKENS = 8192
 
     suspend fun correct(
         rawText: String,
