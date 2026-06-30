@@ -75,6 +75,8 @@ class FloatingButtonService : Service() {
     private var durationBadgeParams: WindowManager.LayoutParams? = null
     private var miniBadgeView: TextView? = null
     private var miniBadgeParams: WindowManager.LayoutParams? = null
+    private var emojiBadgeView: TextView? = null
+    private var emojiBadgeParams: WindowManager.LayoutParams? = null
 
     private var statusView: TextView? = null
     private var statusParams: WindowManager.LayoutParams? = null
@@ -1423,6 +1425,58 @@ class FloatingButtonService : Service() {
         miniBadgeView   = mBadge
         miniBadgeParams = mParams
         windowManager.addView(mBadge, mParams)
+
+        // ── Side badge: emoji on/off ──────────────────────────────────────────
+        val emojiW = (32 * dp).toInt()
+        val emojiH = (32 * dp).toInt()
+        val emojiOn = (prefs.getString(KEY_EMOJI_LEVEL, EMOJI_FEW) ?: EMOJI_FEW) != EMOJI_NONE
+        val eBadge = TextView(this).apply {
+            text = if (emojiOn) "🙂" else "—"
+            textSize = if (emojiOn) 16f else 14f
+            gravity = Gravity.CENTER
+            background = buildBadgeBg(dp, active = emojiOn)
+            setTextColor(if (emojiOn) Color.parseColor("#1C1C1E") else Color.parseColor("#8E8E93"))
+        }
+        val eParams = overlayParams(
+            w = emojiW, h = emojiH,
+            x = emojiBadgeX(emojiW),
+            y = params.y + (buttonSize - emojiH) / 2
+        )
+        eBadge.setOnClickListener { toggleEmojiBadge() }
+        emojiBadgeView   = eBadge
+        emojiBadgeParams = eParams
+        windowManager.addView(eBadge, eParams)
+    }
+
+    private fun emojiBadgeX(badgeW: Int): Int {
+        val dp = resources.displayMetrics.density
+        val gap = (6 * dp).toInt()
+        return if (isOnRightEdge) params.x - badgeW - gap
+               else params.x + buttonSize + gap
+    }
+
+    private fun toggleEmojiBadge() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getString(KEY_EMOJI_LEVEL, EMOJI_FEW) ?: EMOJI_FEW
+        val next = if (current == EMOJI_NONE) EMOJI_FEW else EMOJI_NONE
+        prefs.edit().putString(KEY_EMOJI_LEVEL, next).apply()
+        val dp = resources.displayMetrics.density
+        val emojiOn = next != EMOJI_NONE
+        emojiBadgeView?.apply {
+            text = if (emojiOn) "🙂" else "—"
+            textSize = if (emojiOn) 16f else 14f
+            background = buildBadgeBg(dp, active = emojiOn)
+            setTextColor(if (emojiOn) Color.parseColor("#1C1C1E") else Color.parseColor("#8E8E93"))
+            animate().cancel()
+            animate().scaleX(0.82f).scaleY(0.82f).setDuration(70)
+                .withEndAction {
+                    animate().scaleX(1f).scaleY(1f)
+                        .setDuration(140)
+                        .setInterpolator(OvershootInterpolator(1.4f))
+                        .start()
+                }.start()
+        }
+        resetInactivityTimer()
     }
 
     private fun applyDuration(seconds: Int) {
@@ -1506,10 +1560,17 @@ class FloatingButtonService : Service() {
             p.y = (params.y - h - gap).coerceAtLeast(0)
             miniBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
         }
+        emojiBadgeParams?.let { p ->
+            val w = p.width
+            val h = p.height
+            p.x = emojiBadgeX(w).coerceIn(0, (sw - w).coerceAtLeast(0))
+            p.y = params.y + (buttonSize - h) / 2
+            emojiBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
+        }
     }
 
     private fun showBadges() {
-        listOfNotNull(durationBadgeView, miniBadgeView).forEach { v ->
+        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView).forEach { v ->
             v.animate().cancel()
             v.alpha = 0f
             v.scaleX = 0.82f
@@ -1523,7 +1584,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun hideBadges() {
-        listOfNotNull(durationBadgeView, miniBadgeView).forEach { v ->
+        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView).forEach { v ->
             v.animate().cancel()
             v.animate().alpha(0f).scaleX(0.82f).scaleY(0.82f)
                 .setDuration(140)
@@ -1539,6 +1600,9 @@ class FloatingButtonService : Service() {
         runCatching { miniBadgeView?.let { windowManager.removeView(it) } }
         miniBadgeView   = null
         miniBadgeParams = null
+        runCatching { emojiBadgeView?.let { windowManager.removeView(it) } }
+        emojiBadgeView   = null
+        emojiBadgeParams = null
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
