@@ -96,6 +96,8 @@ class FloatingButtonService : Service() {
     private var miniRecordingFile: File? = null
     private var miniMediaRecorder: MediaRecorder? = null
     private var actionRow: LinearLayout? = null
+    private val undoStack = ArrayDeque<Pair<Int, String>>() // index + text
+    private var undoBtn: TextView? = null
 
     private val amplitudeHandler = Handler(Looper.getMainLooper())
     private val amplitudeHistory = ArrayDeque<Float>()
@@ -103,6 +105,7 @@ class FloatingButtonService : Service() {
     private val boomHandler = Handler(Looper.getMainLooper())
     private var boomView: View? = null
     private var isBoomPending = false
+    private var discardGestureActive = false
 
     private var isOnRightEdge = true
     private val inactivityHandler = Handler(Looper.getMainLooper())
@@ -758,7 +761,7 @@ class FloatingButtonService : Service() {
 
     private fun scheduleMenuClose() {
         menuCloseHandler.removeCallbacks(menuCloseRunnable)
-        menuCloseHandler.postDelayed(menuCloseRunnable, 2500L)
+        menuCloseHandler.postDelayed(menuCloseRunnable, 5000L)
     }
 
     // ── Display value helpers ──────────────────────────────────────────────────
@@ -802,6 +805,7 @@ class FloatingButtonService : Service() {
                 initialTouchY = event.rawY
                 touchDownTime = System.currentTimeMillis()
                 isDragging = false
+                discardGestureActive = false
                 if (!isEdgeCollapsed) {
                     longPressHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
                 }
@@ -822,12 +826,37 @@ class FloatingButtonService : Service() {
                     updateStatusPosition()
                     updateBadgePositions()
                 }
+                // Wisch nach unten während Aufnahme = Verwerfen-Vorschau
+                if (isRecording) {
+                    val dp = resources.displayMetrics.density
+                    val threshold = 80 * dp
+                    if (dy > threshold && dy > abs(dx)) {
+                        if (!discardGestureActive) {
+                            discardGestureActive = true
+                            // Visuelles Feedback: Label wird grau
+                            Handler(Looper.getMainLooper()).post {
+                                recLabelView?.setTextColor(Color.parseColor("#8E8E93"))
+                                showStatus("↓ Loslassen zum Verwerfen", Color.parseColor("#FF453A"))
+                            }
+                        }
+                    } else if (discardGestureActive) {
+                        discardGestureActive = false
+                        Handler(Looper.getMainLooper()).post {
+                            recLabelView?.setTextColor(Color.WHITE)
+                            showStatus("${amplitudeHistory.joinToString("") { a -> WAVE_CHARS[(a * (WAVE_CHARS.size - 1)).toInt().coerceIn(0, WAVE_CHARS.size - 1)].toString() }}  ...", Color.WHITE)
+                        }
+                    }
+                }
                 true
             }
             MotionEvent.ACTION_UP -> {
                 longPressHandler.removeCallbacks(longPressRunnable)
                 if (menuClosedByDown) {
                     menuClosedByDown = false
+                    return@OnTouchListener true
+                }
+                if (isRecording && discardGestureActive) {
+                    discardRecording()
                     return@OnTouchListener true
                 }
                 val elapsed = System.currentTimeMillis() - touchDownTime
@@ -848,6 +877,49 @@ class FloatingButtonService : Service() {
     private fun toggleRecording() {
         if (isBoomPending) return
         if (isRecording) stopRecording(transcribe = true) else startRecording()
+    }
+
+    private fun discardRecording() {
+        if (!isRecording) return
+        isRecording = false
+        discardGestureActive = false
+        amplitudeHandler.removeCallbacks(amplitudeRunnable)
+        timerHandler.removeCallbacksAndMessages(null)
+        boomHandler.removeCallbacksAndMessages(null)
+        isBoomPending = false
+        recordingSeconds = 0
+        runCatching { mediaRecorder?.stop() }
+        runCatching { mediaRecorder?.release() }
+        mediaRecorder = null
+        lastRecordingFile?.delete()
+        lastRecordingFile = null
+        stopPulseRing()
+        buttonView.removeView(recLabelView)
+        recLabelView = null
+        micIconView.alpha = 1f
+        micIconView.visibility = View.VISIBLE
+        applyIdleStyle()
+        buttonView.animate().cancel()
+        buttonView.scaleX = 1f
+        buttonView.scaleY = 1f
+        val swDiscard = getScreenWidth()
+        ValueAnimator.ofInt(params.width, buttonSize).apply {
+            duration = 180
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val w = it.animatedValue as Int
+                params.width = w
+                if (isOnRightEdge) params.x = swDiscard - w
+                runCatching { windowManager.updateViewLayout(buttonView, params) }
+            }
+            start()
+        }
+        hideStatus()
+        showBadges()
+        resetInactivityTimer()
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this@FloatingButtonService, "Aufnahme verworfen", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun startRecording() {
@@ -1272,6 +1344,7 @@ class FloatingButtonService : Service() {
 
     private fun showPreviewOverlay(inputText: String) {
         hidePreviewOverlay()
+        undoStack.clear()
         val dp = resources.displayMetrics.density
         val sw = getScreenWidth()
         val sh = getScreenHeight()
@@ -1415,27 +1488,69 @@ class FloatingButtonService : Service() {
         root.addView(aRow)
         actionRow = aRow
 
-        // Hint label: swipe up to send
-        val hint = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, (4 * dp).toInt(), 0, (12 * dp).toInt())
+        // ── Permanente Toolbar: Rückgängig + Kopieren + Swipe-Hint ───────────────
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((12 * dp).toInt(), (10 * dp).toInt(), (12 * dp).toInt(), (10 * dp).toInt())
+            setBackgroundColor(Color.parseColor("#111113"))
         }
-        val hintArrow = TextView(this).apply {
-            text = "↑"
-            textSize = 20f
-            setTextColor(Color.parseColor("#FFD60A"))
-            gravity = Gravity.CENTER
+
+        val uBtn = TextView(this).apply {
+            this.text = "↩"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            alpha = 0.35f
+            isClickable = false
+            setPadding((10 * dp).toInt(), (6 * dp).toInt(), (10 * dp).toInt(), (6 * dp).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * dp
+                setColor(Color.parseColor("#2C2C2E"))
+            }
+            setOnClickListener { undoDeleteSentence() }
         }
-        val hintText = TextView(this).apply {
-            text = "Nach oben wischen zum Einfügen"
+        undoBtn = uBtn
+
+        val copyBtn = TextView(this).apply {
+            this.text = "⎘"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding((10 * dp).toInt(), (6 * dp).toInt(), (10 * dp).toInt(), (6 * dp).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * dp
+                setColor(Color.parseColor("#2C2C2E"))
+            }
+            setOnClickListener {
+                val textToCopy = previewSentences.joinToString(" ")
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("whisperflow", textToCopy))
+                this.text = "✓"
+                setTextColor(Color.parseColor("#32D74B"))
+                Handler(Looper.getMainLooper()).postDelayed({
+                    this.text = "⎘"
+                    setTextColor(Color.WHITE)
+                }, 1500)
+            }
+        }
+
+        val toolbarSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+        }
+
+        val swipeHint = TextView(this).apply {
+            this.text = "↑ Wischen zum Einfügen"
             textSize = 12f
-            setTextColor(Color.parseColor("#8E8E93"))
-            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#636366"))
+            gravity = Gravity.CENTER_VERTICAL
         }
-        hint.addView(hintArrow)
-        hint.addView(hintText)
-        root.addView(hint)
+
+        toolbar.addView(uBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
+        toolbar.addView(copyBtn)
+        toolbar.addView(toolbarSpacer)
+        toolbar.addView(swipeHint)
+        root.addView(toolbar)
 
         // Swipe-to-send gesture on the whole root
         var touchDownY = 0f
@@ -1517,6 +1632,7 @@ class FloatingButtonService : Service() {
     private fun deleteSelectedSentence() {
         val idx = selectedSentenceIndex
         if (idx < 0 || idx >= previewSentences.size) return
+        undoStack.addLast(Pair(idx, previewSentences[idx]))
         previewSentences.removeAt(idx)
         sentenceViews.getOrNull(idx)?.let { tv ->
             (tv.parent as? android.view.ViewGroup)?.removeView(tv)
@@ -1524,6 +1640,48 @@ class FloatingButtonService : Service() {
         sentenceViews.removeAt(idx)
         selectedSentenceIndex = -1
         actionRow?.visibility = View.GONE
+        updateUndoButton()
+    }
+
+    private fun updateUndoButton() {
+        val active = undoStack.isNotEmpty()
+        undoBtn?.apply {
+            alpha = if (active) 1f else 0.35f
+            isClickable = active
+        }
+    }
+
+    private fun undoDeleteSentence() {
+        if (undoStack.isEmpty()) return
+        val (idx, text) = undoStack.removeLast()
+        val insertAt = idx.coerceIn(0, previewSentences.size)
+        previewSentences.add(insertAt, text)
+
+        val dp = resources.displayMetrics.density
+        val tv = TextView(this).apply {
+            this.text = text
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setLineSpacing(3 * dp, 1f)
+            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10 * dp
+                setColor(Color.TRANSPARENT)
+            }
+            val newIdx = insertAt
+            setOnClickListener { selectSentence(newIdx) }
+        }
+        val tvParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = (6 * dp).toInt() }
+
+        // Finde sentenceContainer (Parent der sentenceViews)
+        val container = sentenceViews.firstOrNull()?.parent as? LinearLayout
+            ?: sentenceViews.lastOrNull()?.parent as? LinearLayout
+        container?.addView(tv, insertAt, tvParams)
+        sentenceViews.add(insertAt, tv)
+        updateUndoButton()
     }
 
     private fun startMiniRecording(rerecordBtn: TextView) {
@@ -1610,6 +1768,8 @@ class FloatingButtonService : Service() {
         previewSentences.clear()
         selectedSentenceIndex = -1
         actionRow = null
+        undoStack.clear()
+        undoBtn = null
     }
 
     // ── Text transformations ──────────────────────────────────────────────────
@@ -1628,9 +1788,20 @@ class FloatingButtonService : Service() {
     }
 
     private fun String.removeFillWords(): String =
-        replace(Regex("""\b(ähm|äh|hm|ehm)\b[,\s]*""", RegexOption.IGNORE_CASE), " ")
-            .replace(Regex("""\s{2,}"""), " ")
-            .trim()
+        // Hesitationslaute (immer entfernen)
+        replace(Regex("""\b(ähm|äh|öhm|öh|hm|hmm|ehm|ehh|ähh|ähähm)\b[,\s]*""", RegexOption.IGNORE_CASE), " ")
+        // "also" nur am absoluten Satzanfang als bedeutungslose Einleitung
+        .replace(Regex("""^also[,\s]+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""(?<=[.!?]\s)also[,\s]+""", RegexOption.IGNORE_CASE), "")
+        // "genau genau", "ja genau", "genau" als isolierte Bestätigung
+        .replace(Regex("""\b(ja\s+)?genau\s+genau\b[,\s]*""", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("""\bja\s+genau\b[,\s]*""", RegexOption.IGNORE_CASE), " ")
+        // "ne" / "oder" am Satzende als Füllsel (nur wenn direkt vor ? oder am Ende)
+        .replace(Regex(""",?\s*\bne\b\s*\?"""), "?")
+        .replace(Regex(""",?\s*\bne\b\s*${'$'}""", RegexOption.MULTILINE), "")
+        // Mehrfache Leerzeichen bereinigen
+        .replace(Regex("""\s{2,}"""), " ")
+        .trim()
 
     private fun String.replacePunctuationWords(): String =
         replace(Regex("""\bPunkt\b"""), ".")
