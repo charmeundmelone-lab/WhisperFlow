@@ -239,7 +239,7 @@ whisper.cpp (bisher reines Gradle+JDK, kein NDK) — echte Erweiterung der Build
 übernommen — eigene Implementierung in Kotlin + whisper.cpp, daher keine Lizenzpflicht.
 
 **Fortschritts-Checkliste (bei jedem fertigen Schritt sofort abhaken + committen):**
-- [ ] NDK/CMake-Setup im CI-Workflow
+- [x] NDK/CMake-Setup im CI-Workflow — verifiziert in echter CI (PR #3, Build erfolgreich in 1:35min)
 - [ ] whisper.cpp als natives Modul eingebunden (JNI-Bridge)
 - [ ] Modell-Download-Flow (expliziter Button, `large-v3-turbo` quantisiert)
 - [ ] Chunk-Buffer-Logik in `FloatingButtonService` (Session-State statt Zwischenablage)
