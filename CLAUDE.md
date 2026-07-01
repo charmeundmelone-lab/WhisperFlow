@@ -3,7 +3,7 @@
 ## Was diese App ist (aktueller Stand)
 
 **App-Name:** Laberboombox (Package bleibt `de.minitraxx.whisperflow`)
-**Letzter stabiler Build:** commit `085ed8c` auf `main` — bestätigt funktionierend ✓
+**Letzter stabiler Build:** commit `57b4bcf` auf `main` — bestätigt funktionierend ✓
 
 Die App ist ein **Floating-Button-Diktierwerkzeug**:
 
@@ -132,13 +132,13 @@ docs/
 | **Emoji-Toggle-Badge (Seite)** | An der Innenseite des Buttons (gegenüber dem Rand). "🙂" gelb = Emojis an (EMOJI_FEW), "—" grau = Emojis aus (EMOJI_NONE). Tippen togglet. Bounce-Animation bei Tap. |
 | **BOOM! Auto-Stop** | Nach konfigurierbarer Maximaldauer (Standard 30s, max 90s per Preset). 10s Vorwarnung: Timer blinkt orange/rot. Dann: Comic-Starburst (16-zackig, #FFD60A) + "BOOM!" (rot) für 1,5s → automatische Transkription. `isBoomPending` verhindert Toggle während BOOM. |
 | **Whisper-Transkription** | `multipart/form-data` an OpenAI, Modell `whisper-1`. Kosten: $0.006/min sekundengenau. 30s = 0,3 Cent. |
-| **Claude-Stilkorrektur** | `claude-haiku-4-5-20251001`, max_tokens: 2500, System-Prompt je nach Profil. Diktat-Text in `<diktat>...</diktat>` Tags → Claude antwortet nicht auf Fragen im Text. |
+| **Claude-Stilkorrektur** | `claude-haiku-4-5-20251001`, max_tokens: 8192, readTimeout: 180s, System-Prompt je nach Profil. Diktat-Text in `<diktat>...</diktat>` Tags → Claude antwortet nicht auf Fragen im Text. |
 | **Drei Stil-Profile** | WhatsApp (locker, kein Umformulieren), Professionell (Business, kein Umformulieren), Formal (Behörden — nur Wort-für-Wort-Ersatz, kein Satzbau-Umbau). |
 | **StylePrompts — ABSOLUT VERBOTEN zuerst** | Jeder Prompt beginnt mit ABSOLUT VERBOTEN-Block. Enthält explizit: "Sätze umformulieren, Wörter durch Synonyme ersetzen, oder den Stil des Sprechers verändern." Dann "Was du NIEMALS tust" mit konkreten Verboten. Formal: Darf einzelne Wörter formalisieren, NICHT Satzstruktur ändern. |
 | **Auto-App-Erkennung (gefixt)** | `WhisperAccessibilityService.onAccessibilityEvent()` updatet `activePackage` NUR bei `TYPE_WINDOW_STATE_CHANGED`. Filtert eigene Package (`de.minitraxx.whisperflow`) und System-Pakete (`com.android.*`, `android`) heraus. `capturedPackage` wird bei `startRecording()` gespeichert → korrekt auch wenn App gewechselt wurde. |
 | **Text-Injection (WhatsApp)** | `findBottomMostEditable()` findet Compose-Feld zuverlässig auch wenn FOCUS_INPUT verloren. `ACTION_SET_TEXT` mit nur `text` → kein "Nachricht"-Prefix. |
 | **Text-Injection Fallback** | Clipboard + `ACTION_PASTE` wenn `ACTION_SET_TEXT` false zurückgibt. |
-| **Labels-Toggle** | Im Radialmenü. Steuert `headingsEnabled` in SharedPreferences. WA: "Ach ja:", "Noch kurz:". Professionell: "Betreff:", "Fazit:". Formal: "Sachverhalt:", "Bitte:". Fließtext bleibt IMMER Fließtext. |
+| **Überschriften-Toggle (Labels)** | Im Radialmenü (AN/AUS). Steuert `headingsEnabled`. WA: originelle, witzige Kurztitel. Professionell: knapp & präzise. Formal: sachlich ("Sachverhalt:", "Bitte:"). Fließtext bleibt IMMER Fließtext. |
 | **Emoji-Modi** | `none`: 0 Emojis. `few`: 1–2 nach eigenem Ermessen (nicht erzwingen). `many`: 5–8, variiert platziert. Toggle-Badge schaltet nur `none`↔`few`. Radialmenü erlaubt auch `many`. |
 | **Füllwort-Entfernung** | "ähm", "äh", "hm", "ehm" aus Transkript entfernen (vor Claude-Korrektur). |
 | **Punktuation** | "Punkt", "Komma", "Ausrufezeichen", "Absatz" etc. → Satzzeichen/Newlines. |
@@ -149,6 +149,12 @@ docs/
 | **Pulse Ring** | Roter Pulsring während Aufnahme (eigenes Overlay-Fenster, animiert). |
 | **Korrektur-Vorschau** | Optional (KEY_PREVIEW_ENABLED): Zeigt korrigierten Text vor dem Einfügen. 10s Timeout. |
 | **Dokumentation** | `docs/betriebsanleitung.html`: vollständige illustrierte Bedienungsanleitung. `docs/button-guide.html`: einseitige Kurzanleitung (A4, dunkel, druckbar). |
+| **Erweiterte Füllwort-Entfernung** | Kontextsensitiv: "also", "genau", "ne", "halt", "quasi" nur wenn bedeutungslos. Inhaltliche Verwendung bleibt erhalten. |
+| **Wisch-nach-unten zum Verwerfen** | Während Aufnahme: dy > 80dp → discardGestureActive → Loslassen verwirft. Button bleibt dabei FIXIERT (kein Mitbewegen). |
+| **Mindestdauer 1,5s** | Aufnahmen < 1500ms werden still verworfen — kein Whisper-Call, keine Kosten. Schützt vor versehentlichen Taps. In `stopRecording()` geprüft. |
+| **Bottom-Sheet-Editor** | Vorschau-Overlay mit Satz-Tap-Auswahl, Löschen, Undo, Kopieren, Swipe-up-zum-Einfügen, Swipe-down-zum-Verwerfen, Mini-Aufnahme zum Anhängen. |
+| **Kreative Absatztrenner** | WA/Professionell: variabel nach Rhythmus (Leerzeile / — / · · ·). Formal: immer Leerzeile. Konfiguriert in `StylePrompts.kt`. |
+| **Plattdeutsch-Modus** | Radialmenü Sprache: PLT → whisper_language="de" + Claude-Prompt bewahrt Dialektwörter exakt. |
 
 ---
 
@@ -163,34 +169,22 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper (NÄCHSTE AUFGABE — vom User bestätigt)
+### 1. On-Device Whisper — NEUE IDEE (NÄCHSTE AUFGABE)
 
-**Ziel:** Kosten um ~80-85% senken. Aktuell: ~49 Cent/2 Tage → Ziel: ~8-10 Cent/2 Tage.
+**Status:** User hat eine neue "geniale Idee" für lokales Whisper in Verbindung mit Claude Haiku.
+Details noch nicht besprochen — nächste Session klären!
 
-**Entschiedene Strategie — Hybridpipeline:**
-```
-< 10s Aufnahme  →  Lokal whisper-tiny-int8 (kostenlos) + kein Claude
-10–30s          →  Lokal whisper-tiny-int8 (kostenlos) + Claude optional
-> 30s           →  Lokal whisper-tiny-int8 (kostenlos) + Claude ja
-Formal-Modus    →  Lokal whisper-tiny-int8 (kostenlos) + Claude immer
-```
-
-**Technischer Plan:**
+**Bisheriger Plan (kann überholt sein durch neue Idee):**
 - Library: `com.microsoft.onnxruntime:onnxruntime-android`
-- Modell: `whisper-tiny-int8` (~40MB, einmalig beim ersten App-Start herunterladen, in `filesDir` speichern)
-- Neue Datei: `api/WhisperLocalClient.kt`
+- Modell: `whisper-tiny-int8` (~40MB, in `filesDir`)
 - Audio-Pipeline: M4A → PCM 16kHz mono via `MediaExtractor` + `MediaCodec`
-- Mel-Spectrogram → ONNX Encoder → ONNX Decoder Loop → Text
-- Integration in `FloatingButtonService.processAudio()`: Routing nach Aufnahmedauer
-- Qualität: 85–90% von Whisper API — für Alltagsdiktate ausreichend
-- Nothing Phone 3a (Snapdragon 7s Gen 3, 8GB RAM): perfekt geeignet
-- Inferenzzeit: ca. 5–8s für 30s Aufnahme
+- Nothing Phone 3a (Snapdragon 7s Gen 3, 8GB RAM): gut geeignet
 
-**Umsetzung in Stufen:**
-1. Dependency + Modell-Download (einmalig)
-2. Audio M4A → PCM Konvertierung
-3. ONNX Whisper Inferenz
-4. Integration + Routing in FloatingButtonService
+**Kostenkontext (Budget):**
+- Ziel: €10/Monat für 2 Personen
+- Mindestdauer 1,5s schützt bereits vor versehentlichen Taps
+- Whisper: $0.006/min — Google STT wäre 3× teurer, keine Alternative
+- Haiku Fine-Tuning: nicht möglich (Anthropic bietet das nicht an)
 
 ### 2. EncryptedSharedPreferences für API-Keys
 Aktuell: plain `SharedPreferences`. Für Privatnutzung akzeptabel aber technische Schuld.
@@ -317,7 +311,7 @@ Alle in `FloatingButtonService.companion object`:
 ### Anthropic Claude
 - `POST https://api.anthropic.com/v1/messages`
 - Auth: `x-api-key: <KEY>` + `anthropic-version: 2023-06-01`
-- Modell: `claude-haiku-4-5-20251001`, `max_tokens: 2500`
+- Modell: `claude-haiku-4-5-20251001`, `max_tokens: 8192`
 - System-Prompt aus `StylePrompts.kt`
 - User-Message: `<diktat>\n{rohesTranskript}\n</diktat>`
 
