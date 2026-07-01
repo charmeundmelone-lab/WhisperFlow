@@ -7,6 +7,9 @@ plugins {
 android {
     namespace = "de.minitraxx.whisperflow"
     compileSdk = 35
+    // 27.3.13750724: aktuelle Default-NDK-Version auf GitHub Actions ubuntu-latest Runnern
+    // (Stand 2026). Lokal ggf. via `sdkmanager --install "ndk;27.3.13750724"` nachinstallieren.
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         applicationId = "de.minitraxx.whisperflow"
@@ -14,6 +17,18 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        ndk {
+            // Nur arm64-v8a: Zielgerät (Nothing Phone 3a, Snapdragon 7s Gen 3) ist rein
+            // arm64. Spart Build-Zeit und APK-Größe gegenüber allen ABIs.
+            abiFilters += listOf("arm64-v8a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += ""
+            }
+        }
     }
 
     signingConfigs {
@@ -47,6 +62,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 
