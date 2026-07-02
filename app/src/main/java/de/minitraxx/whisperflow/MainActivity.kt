@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
                 var language by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_LANGUAGE, "") ?: "")) }
                 var previewEnabled by remember { mutableStateOf(prefs.getBoolean(FloatingButtonService.KEY_PREVIEW_ENABLED, false)) }
                 var onDeviceEnabled by remember { mutableStateOf(prefs.getBoolean(FloatingButtonService.KEY_ONDEVICE_WHISPER, false)) }
+                val onDeviceDiag = remember(refresh) { prefs.getString(FloatingButtonService.KEY_ONDEVICE_LAST_DIAG, "") ?: "" }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val todaySpent = remember(refresh) { CostTracker.getTodaySpent(this) }
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
                     language = language,
                     previewEnabled = previewEnabled,
                     onDeviceEnabled = onDeviceEnabled,
+                    onDeviceDiag = onDeviceDiag,
                     spent = spent,
                     todaySpent = todaySpent,
                     budget = budget,
@@ -173,6 +175,7 @@ fun MainScreen(
     language: String,
     previewEnabled: Boolean,
     onDeviceEnabled: Boolean,
+    onDeviceDiag: String,
     spent: Double,
     todaySpent: Double,
     budget: Double,
@@ -267,6 +270,7 @@ fun MainScreen(
             Spacer(Modifier.height(12.dp))
             OnDeviceWhisperCard(
                 enabled = onDeviceEnabled,
+                lastDiag = onDeviceDiag,
                 onEnabledChange = onOnDeviceEnabledChange
             )
             Spacer(Modifier.height(12.dp))
@@ -458,12 +462,14 @@ fun SettingsCard(
 @Composable
 fun OnDeviceWhisperCard(
     enabled: Boolean,
+    lastDiag: String,
     onEnabledChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val downloadState by ModelManager.state.collectAsState()
     // Verfügbarkeit neu prüfen, sobald sich der Download-Zustand ändert
     val modelAvailable = remember(downloadState) { ModelManager.isModelAvailable(context) }
+    val modelSizeMb = remember(downloadState) { ModelManager.modelFile(context).length() / (1024 * 1024) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -498,7 +504,7 @@ fun OnDeviceWhisperCard(
                 modelAvailable -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "✓ Modell vorhanden (large-v3-turbo)",
+                            "✓ Modell vorhanden (large-v3-turbo, $modelSizeMb MB)",
                             color = Color(0xFF30D158), fontSize = 13.sp,
                             modifier = Modifier.weight(1f)
                         )
@@ -563,6 +569,14 @@ fun OnDeviceWhisperCard(
                         modifier = Modifier.padding(top = 6.dp)
                     )
                 }
+            }
+
+            if (lastDiag.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Letzte Aufnahme: $lastDiag",
+                    color = Color(0xFFFFD60A), fontSize = 11.sp, lineHeight = 15.sp
+                )
             }
         }
     }
