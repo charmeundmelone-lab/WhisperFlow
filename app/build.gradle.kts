@@ -7,13 +7,34 @@ plugins {
 android {
     namespace = "de.minitraxx.whisperflow"
     compileSdk = 35
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "de.minitraxx.whisperflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
+
+        // On-Device Whisper: nur arm64 (Zielgeraet Nothing Phone 3a).
+        // Auf anderen ABIs fehlt die native Lib -> automatischer Cloud-Fallback.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DBUILD_SHARED_LIBS=OFF",
+                    "-DWHISPER_BUILD_TESTS=OFF",
+                    "-DWHISPER_BUILD_EXAMPLES=OFF",
+                    "-DWHISPER_BUILD_SERVER=OFF",
+                    "-DGGML_OPENMP=OFF",
+                    "-DGGML_NATIVE=OFF"
+                )
+                cppFlags += "-std=c++17"
+            }
+        }
     }
 
     signingConfigs {
@@ -47,6 +68,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 
