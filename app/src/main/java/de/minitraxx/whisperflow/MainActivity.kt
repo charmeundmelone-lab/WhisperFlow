@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -33,6 +34,7 @@ import de.minitraxx.whisperflow.service.FloatingButtonService
 import de.minitraxx.whisperflow.service.WhisperAccessibilityService
 import de.minitraxx.whisperflow.ui.theme.WhisperFlowTheme
 import de.minitraxx.whisperflow.util.CostTracker
+import de.minitraxx.whisperflow.whisper.ModelManager
 
 class MainActivity : ComponentActivity() {
 
@@ -85,6 +87,7 @@ class MainActivity : ComponentActivity() {
                 var anthropicKey by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_ANTHROPIC_API_KEY, "") ?: "").trim()) }
                 var language by remember { mutableStateOf((prefs.getString(FloatingButtonService.KEY_LANGUAGE, "") ?: "")) }
                 var previewEnabled by remember { mutableStateOf(prefs.getBoolean(FloatingButtonService.KEY_PREVIEW_ENABLED, false)) }
+                var onDeviceEnabled by remember { mutableStateOf(prefs.getBoolean(FloatingButtonService.KEY_ONDEVICE_WHISPER, false)) }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val todaySpent = remember(refresh) { CostTracker.getTodaySpent(this) }
@@ -99,6 +102,7 @@ class MainActivity : ComponentActivity() {
                     anthropicKey = anthropicKey,
                     language = language,
                     previewEnabled = previewEnabled,
+                    onDeviceEnabled = onDeviceEnabled,
                     spent = spent,
                     todaySpent = todaySpent,
                     budget = budget,
@@ -140,6 +144,10 @@ class MainActivity : ComponentActivity() {
                         previewEnabled = enabled
                         prefs.edit().putBoolean(FloatingButtonService.KEY_PREVIEW_ENABLED, enabled).apply()
                     },
+                    onOnDeviceEnabledChange = { enabled ->
+                        onDeviceEnabled = enabled
+                        prefs.edit().putBoolean(FloatingButtonService.KEY_ONDEVICE_WHISPER, enabled).apply()
+                    },
                     onResetBudget = {
                         CostTracker.reset(this)
                         refreshTrigger++
@@ -164,6 +172,7 @@ fun MainScreen(
     anthropicKey: String,
     language: String,
     previewEnabled: Boolean,
+    onDeviceEnabled: Boolean,
     spent: Double,
     todaySpent: Double,
     budget: Double,
@@ -178,6 +187,7 @@ fun MainScreen(
     onAnthropicKeyChange: (String) -> Unit,
     onLanguageChange: (String) -> Unit,
     onPreviewEnabledChange: (Boolean) -> Unit,
+    onOnDeviceEnabledChange: (Boolean) -> Unit,
     onResetBudget: () -> Unit,
     onBudgetLimitChange: (Double) -> Unit
 ) {
@@ -253,6 +263,11 @@ fun MainScreen(
                 previewEnabled = previewEnabled,
                 onLanguageChange = onLanguageChange,
                 onPreviewEnabledChange = onPreviewEnabledChange
+            )
+            Spacer(Modifier.height(12.dp))
+            OnDeviceWhisperCard(
+                enabled = onDeviceEnabled,
+                onEnabledChange = onOnDeviceEnabledChange
             )
             Spacer(Modifier.height(12.dp))
             BudgetCard(
@@ -435,6 +450,119 @@ fun SettingsCard(
                         uncheckedTrackColor = Color(0xFF2C2C2E)
                     )
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun OnDeviceWhisperCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val downloadState by ModelManager.state.collectAsState()
+    // Verfügbarkeit neu prüfen, sobald sich der Download-Zustand ändert
+    val modelAvailable = remember(downloadState) { ModelManager.isModelAvailable(context) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("On-Device Whisper (Beta)", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(
+                        "Aufnahmen bis 30s werden kostenlos direkt auf dem Handy transkribiert — 0 € und offline. Längere Aufnahmen laufen weiter über die Cloud. Bei Problemen springt automatisch die Cloud ein.",
+                        color = Color(0xFF8E8E93), fontSize = 12.sp, lineHeight = 17.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF30D158),
+                        uncheckedThumbColor = Color(0xFF8E8E93),
+                        uncheckedTrackColor = Color(0xFF2C2C2E)
+                    )
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            when {
+                modelAvailable -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "✓ Modell vorhanden (large-v3-turbo)",
+                            color = Color(0xFF30D158), fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { ModelManager.deleteModel(context) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text("Löschen", color = Color(0xFFFF453A), fontSize = 12.sp)
+                        }
+                    }
+                    if (!enabled) {
+                        Text(
+                            "Schalter oben aktivieren, um lokal zu transkribieren.",
+                            color = Color(0xFF8E8E93), fontSize = 12.sp
+                        )
+                    }
+                }
+                downloadState is ModelManager.DownloadState.Downloading -> {
+                    val dl = downloadState as ModelManager.DownloadState.Downloading
+                    val pct = dl.percent
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (dl.bytesTotal > 0)
+                                "Lade Modell... $pct % (${dl.bytesDone / (1024 * 1024)} / ${dl.bytesTotal / (1024 * 1024)} MB)"
+                            else
+                                "Lade Modell... ${dl.bytesDone / (1024 * 1024)} MB",
+                            color = Color.White, fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { ModelManager.cancelDownload() }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text("Abbrechen", color = Color(0xFFFF453A), fontSize = 12.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { (pct / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = Color(0xFF30D158),
+                        trackColor = Color(0xFF2C2C2E)
+                    )
+                }
+                else -> {
+                    if (downloadState is ModelManager.DownloadState.Failed) {
+                        Text(
+                            "Fehler: ${(downloadState as ModelManager.DownloadState.Failed).message}",
+                            color = Color(0xFFFF453A), fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    Button(
+                        onClick = { ModelManager.startDownload(context) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A84FF)),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            if (downloadState is ModelManager.DownloadState.Failed) "Download fortsetzen"
+                            else "Modell herunterladen (${ModelManager.MODEL_SIZE_LABEL})",
+                            fontSize = 14.sp
+                        )
+                    }
+                    Text(
+                        "Am besten im WLAN laden. Ein abgebrochener Download wird beim nächsten Versuch fortgesetzt.",
+                        color = Color(0xFF8E8E93), fontSize = 11.sp, lineHeight = 15.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
             }
         }
     }

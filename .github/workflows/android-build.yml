@@ -28,6 +28,12 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
+      # On-Device Whisper: natives whisper.cpp braucht NDK + CMake
+      - name: Install Android NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+
       - name: Build Debug APK
         run: gradle assembleDebug --no-daemon
 

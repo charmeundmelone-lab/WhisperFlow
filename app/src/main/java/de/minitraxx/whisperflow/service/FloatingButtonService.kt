@@ -37,6 +37,8 @@ import de.minitraxx.whisperflow.api.ClaudeClient
 import de.minitraxx.whisperflow.api.StylePrompts
 import de.minitraxx.whisperflow.api.WhisperClient
 import de.minitraxx.whisperflow.util.CostTracker
+import de.minitraxx.whisperflow.whisper.LocalWhisperEngine
+import de.minitraxx.whisperflow.whisper.ModelManager
 import kotlinx.coroutines.*
 import java.io.File
 import kotlin.math.abs
@@ -94,6 +96,7 @@ class FloatingButtonService : Service() {
     private var sentenceViews = mutableListOf<TextView>()
     private var isMiniRecording = false
     private var miniRecordingFile: File? = null
+    private var miniRecordingStartTime = 0L
     private var miniMediaRecorder: MediaRecorder? = null
     private var actionRow: LinearLayout? = null
     private val undoStack = ArrayDeque<Pair<Int, String>>() // index + text
@@ -141,6 +144,9 @@ class FloatingButtonService : Service() {
         const val KEY_MAX_DURATION = "max_duration"
         private const val DURATION_MINI = 10
         private val DURATION_PRESETS = listOf(30, 90, 180, 300)
+        // On-Device Whisper (Option 1): nur Aufnahmen bis 30s (ein Whisper-Fenster).
+        // Kleiner Puffer, weil durationMs minimal über der Preset-Grenze liegen kann.
+        private const val LOCAL_WHISPER_MAX_MS = 31_500L
         private const val INACTIVITY_TIMEOUT_MS = 5000L
         const val KEY_EDGE_SIDE = "edge_side"
 
@@ -150,6 +156,7 @@ class FloatingButtonService : Service() {
         const val KEY_STYLE_PROFILE = "style_profile"
         const val KEY_LANGUAGE = "whisper_language"
         const val KEY_PREVIEW_ENABLED = "preview_enabled"
+        const val KEY_ONDEVICE_WHISPER = "ondevice_whisper"
         const val KEY_EMOJI_LEVEL = "emoji_level"
         const val KEY_EMOJI_ENABLED = "emoji_enabled"
         const val KEY_HEADINGS_ENABLED = "headings_enabled"
@@ -207,6 +214,7 @@ class FloatingButtonService : Service() {
         runCatching { if (::buttonView.isInitialized) windowManager.removeView(buttonView) }
         runCatching { statusView?.let { windowManager.removeView(it) } }
         statusView = null
+        LocalWhisperEngine.release()
         super.onDestroy()
     }
 
@@ -929,8 +937,16 @@ class FloatingButtonService : Service() {
         cancelInactivityTimer()
         hideBadges()
         if (CostTracker.isExceeded(this)) {
-            Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
-            return
+            // On-Device-Aufnahmen (≤30s-Preset, Modell vorhanden) sind kostenlos —
+            // die dürfen auch bei aufgebrauchtem Cloud-Guthaben weiterlaufen.
+            val localFree = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ONDEVICE_WHISPER, false) &&
+                currentMaxSeconds <= 30 &&
+                ModelManager.isModelAvailable(this)
+            if (!localFree) {
+                Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
+                return
+            }
         }
         capturedPackage = WhisperAccessibilityService.activePackage
         val file = File(cacheDir, "wf_${System.currentTimeMillis()}.m4a")
@@ -1039,8 +1055,7 @@ class FloatingButtonService : Service() {
         }
 
         showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
-        CostTracker.recordAudio(durationMs / 1000L, this)
-        serviceScope.launch { processAudio(file) }
+        serviceScope.launch { processAudio(file, durationMs) }
     }
 
     // ── BOOM! auto-stop at 90 seconds ─────────────────────────────────────────
@@ -1097,8 +1112,7 @@ class FloatingButtonService : Service() {
             }
 
             showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
-            CostTracker.recordAudio(durationMs / 1000L, this@FloatingButtonService)
-            serviceScope.launch { processAudio(file) }
+            serviceScope.launch { processAudio(file, durationMs) }
         }, 1500)
     }
 
@@ -1262,7 +1276,40 @@ class FloatingButtonService : Service() {
 
     // ── Audio processing ──────────────────────────────────────────────────────
 
-    private suspend fun processAudio(file: File) {
+    /**
+     * Transkription mit On-Device-Pfad (Option 1):
+     * Feature-Flag AN + Aufnahme ≤30s + Modell vorhanden → lokal (0 €).
+     * Jeder On-Device-Fehler fällt still auf Cloud-Whisper zurück (CLAUDE.md-Regel).
+     * Kosten werden nur für den tatsächlich genutzten Cloud-Pfad erfasst.
+     */
+    private suspend fun smartTranscribe(
+        file: File,
+        whisperLanguage: String,
+        durationMs: Long,
+        openAiKey: String,
+        trackCost: Boolean
+    ): Result<String> {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val localEligible = prefs.getBoolean(KEY_ONDEVICE_WHISPER, false) &&
+            durationMs in 1..LOCAL_WHISPER_MAX_MS &&
+            ModelManager.isModelAvailable(this)
+
+        if (localEligible) {
+            showStatus("Transkribiere (lokal)...", Color.parseColor("#8E8E93"))
+            val local = LocalWhisperEngine.transcribe(this, file, whisperLanguage)
+            local.getOrNull()?.let { return Result.success(it) }
+            // Stiller Fallback: keine Fehlermeldung, direkt Cloud
+            showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
+        }
+
+        if (openAiKey.isBlank()) {
+            return Result.failure(Exception("Kein OpenAI API-Key — bitte in der Laberboombox-App eintragen"))
+        }
+        if (trackCost) CostTracker.recordAudio(durationMs / 1000L, this)
+        return WhisperClient.transcribe(file, openAiKey, whisperLanguage)
+    }
+
+    private suspend fun processAudio(file: File, durationMs: Long) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
         val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
@@ -1274,19 +1321,16 @@ class FloatingButtonService : Service() {
         val effectiveEmojiLevel = if (emojiEnabled) emojiLevel else EMOJI_NONE
         val headingsEnabled = prefs.getBoolean(KEY_HEADINGS_ENABLED, true)
 
-        if (openAiKey.isBlank()) {
-            showToast("Kein OpenAI API-Key — bitte in der Laberboombox-App eintragen")
-            hideStatus()
-            file.delete()
-            return
-        }
-
-        val transcription = WhisperClient.transcribe(file, openAiKey, whisperLanguage).getOrElse {
-            showToast("Whisper-Fehler: ${it.message?.take(60)}")
-            hideStatus()
-            file.delete()
-            return
-        }.removeFillWords()
+        val transcription = smartTranscribe(file, whisperLanguage, durationMs, openAiKey, trackCost = true)
+            .getOrElse {
+                showToast(
+                    if (it.message?.contains("API-Key") == true) it.message ?: "Kein OpenAI API-Key"
+                    else "Whisper-Fehler: ${it.message?.take(60)}"
+                )
+                hideStatus()
+                file.delete()
+                return
+            }.removeFillWords()
         file.delete()
 
         val activePackage = capturedPackage
@@ -1693,10 +1737,11 @@ class FloatingButtonService : Service() {
         }
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
-        if (openAiKey.isBlank()) return
-        val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
-        val whisperLanguage = if (language == "platt") "de" else language
+        val localAvailable = prefs.getBoolean(KEY_ONDEVICE_WHISPER, false) &&
+            ModelManager.isModelAvailable(this)
+        if (openAiKey.isBlank() && !localAvailable) return
 
+        miniRecordingStartTime = System.currentTimeMillis()
         miniRecordingFile = File(cacheDir, "mini_rec_${System.currentTimeMillis()}.m4a")
         runCatching {
             miniMediaRecorder = createMediaRecorder().apply {
@@ -1738,9 +1783,10 @@ class FloatingButtonService : Service() {
         val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
         val whisperLanguage = if (language == "platt") "de" else language
         val capturedIdx = selectedSentenceIndex
+        val miniDurationMs = (System.currentTimeMillis() - miniRecordingStartTime).coerceAtLeast(0)
 
         serviceScope.launch {
-            val result = WhisperClient.transcribe(file, openAiKey, whisperLanguage)
+            val result = smartTranscribe(file, whisperLanguage, miniDurationMs, openAiKey, trackCost = true)
             file.delete()
             result.onSuccess { newText ->
                 val cleaned = newText.trim().removeFillWords().replacePunctuationWords()

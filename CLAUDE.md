@@ -186,15 +186,38 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper — ausführlich geplant, Umsetzung zurückgebaut (Stand 2026-07-01)
+### 1. On-Device Whisper — Option 1 umgesetzt (Stand 2026-07-02)
 
-**Status:** Eine vorherige Session hat das Konzept komplett durchgeplant (siehe Architektur
-unten) und zwei Umsetzungs-Meilensteine begonnen (NDK/CMake-Tooling + whisper.cpp vendored
-mit JNI-Bridge, beides in CI verifiziert). Der Nutzer hat die Umsetzung danach **bewusst
-zurückbauen lassen** (PR geschlossen, nicht gemerged — `main` war ohnehin nie betroffen,
-siehe Branch-Realität oben) und möchte das Feature in einer neuen Session/mit einem anderen
-Modell nochmal angehen. **Die Checkliste unten ist deshalb wieder komplett offen (0/14) —
-kein Code aus dem vorherigen Versuch existiert noch im Repo.**
+**Umsetzungsstand 2026-07-02 — "Option 1: On-Device nur bis 30s" implementiert.**
+Der Nutzer hat sich (Kostenmotiv: 10s-⚡- und 30s-Aufnahmen sind das Gros) für eine
+abgespeckte erste Ausbaustufe entschieden: **Aufnahmen ≤30s laufen lokal (ein einziges
+Whisper-Fenster, kein Chunking), alles darüber weiterhin Cloud.** Dadurch entfällt der
+gesamte Session-/Chunk-Komplex des ursprünglichen Plans (Puffer, Fertig-Badge, ⚡-Umbau,
+Übergangsglättung, Gesamtpuffer-Verarbeitung, Auto-Minimize-Änderung) — der Plan unten
+bleibt als Referenz für eine spätere Voll-Ausbaustufe stehen.
+
+**Was implementiert ist (Option 1):**
+- `app/src/main/cpp/`: CMakeLists (FetchContent whisper.cpp `v1.9.1`, gepinnt) + `whisper_jni.cpp` (JNI-Bridge)
+- Gradle: `ndkVersion 27.2.12479018`, CMake 3.22.1, nur `arm64-v8a` (Nothing Phone 3a)
+- `whisper/WhisperJni.kt` — lazy `System.loadLibrary` in runCatching, nie beim App-Start
+- `whisper/AudioDecoder.kt` — M4A/AAC → 16kHz Mono Float-PCM (MediaCodec + Linear-Resampling); Aufnahme-Pipeline unverändert
+- `whisper/ModelManager.kt` — expliziter Download-Button (`ggml-large-v3-turbo-q5_0.bin`, ~547MB, HuggingFace), Range-Resume, StateFlow-Progress; Modell unter `getExternalFilesDir("models")`
+- `whisper/LocalWhisperEngine.kt` — eigener Scope, busy-Gate, 150s-Timeout (Engine erholt sich selbst, Aufrufer geht zur Cloud)
+- `FloatingButtonService.smartTranscribe()` — Flag AN + Dauer ≤31,5s + Modell da → lokal; JEDER Fehler → stiller Cloud-Fallback; Kosten nur bei tatsächlichem Cloud-Aufruf (`CostTracker.recordAudio` von den Aufrufstellen hierher verschoben). Auch die Mini-Aufnahme im Bottom-Sheet nutzt den Pfad (und wird jetzt ebenfalls kostenerfasst)
+- Budget-Gate in `startRecording`: kostenlose lokale Aufnahmen (Preset ≤30s + Modell) starten auch bei aufgebrauchtem Guthaben
+- Feature-Flag `KEY_ONDEVICE_WHISPER` (default AUS) + Settings-Card in MainActivity (Switch, Download/Fortsetzen/Abbrechen/Löschen, Progress)
+- CI: sdkmanager installiert NDK+CMake vor dem Build
+- Status-Text zeigt "Transkribiere (lokal)..." beim lokalen Versuch — so ist auf dem Gerät erkennbar, welcher Pfad lief
+
+**Noch offen (Option 1):** Test auf dem echten Gerät (Nothing Phone 3a): Modell-Download,
+Geschwindigkeit large-v3-turbo q5_0 (~10–60s für 30s Audio erwartet, erster Lauf +Modell-Load
+~5–10s), Transkriptionsqualität, Akku. Falls Tempo enttäuscht: kleineres Modell (z.B.
+`small`/`medium`-q5) als Alternative im ModelManager anbieten — bewusst NICHT vorauseilend
+eingebaut.
+
+**Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
+durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
+(PR geschlossen, nicht gemerged).
 
 **Die Architektur-Entscheidungen unten sind das Ergebnis einer langen, sorgfältigen
 Q&A-Planungsrunde mit dem Nutzer — als Ausgangspunkt/Referenz gedacht, NICHT als in Stein
@@ -276,20 +299,20 @@ neu drücken, während der Transkription weiterreden"), kein Code wurde übernom
 Implementierung in Kotlin + whisper.cpp geplant, daher keine Lizenzpflicht. Whisper.cpp selbst
 (`ggml-org/whisper.cpp`) ist MIT-lizenziert und zur Einbindung gedacht.
 
-**Fortschritts-Checkliste (zurückgesetzt, 0/14 — bei jedem fertigen Schritt sofort abhaken + committen):**
-- [ ] NDK/CMake-Setup im CI-Workflow
-- [ ] whisper.cpp als natives Modul eingebunden (JNI-Bridge)
-- [ ] Modell-Download-Flow (expliziter Button, `large-v3-turbo` quantisiert)
-- [ ] Chunk-Buffer-Logik in `FloatingButtonService` (Session-State statt Zwischenablage)
-- [ ] "Fertig"-Icon-Badge (UI + Tap-Handler)
-- [ ] Mini-Badge ⚡ Verhalten angepasst (Einzelnotiz-Modus)
-- [ ] Duration-Badge im On-Device-Modus ausgeblendet
-- [ ] Feature-Flag "On-Device Whisper (Beta)" in Einstellungen, Standard AUS
-- [ ] Automatischer Fallback auf Cloud bei jedem On-Device-Fehler
-- [ ] `StylePrompts.kt`: Übergangsglättung zwischen Chunks
-- [ ] Füllwort-Entfernung/Punktuation/Absatztrenner auf Gesamtpuffer statt pro Chunk
-- [ ] Auto-Minimize pausiert bei offener Session mit ungesendetem Puffer
-- [ ] `CostTracker`: On-Device = 0€, nur finaler Claude-Call zählt
+**Fortschritts-Checkliste (Stand 2026-07-02 — Option 1 abgedeckt, Chunk-Punkte nur für Voll-Ausbau relevant):**
+- [x] NDK/CMake-Setup im CI-Workflow
+- [x] whisper.cpp als natives Modul eingebunden (JNI-Bridge)
+- [x] Modell-Download-Flow (expliziter Button, `large-v3-turbo` quantisiert)
+- [ ] *(Voll-Ausbau)* Chunk-Buffer-Logik in `FloatingButtonService` (Session-State statt Zwischenablage)
+- [ ] *(Voll-Ausbau)* "Fertig"-Icon-Badge (UI + Tap-Handler)
+- [ ] *(Voll-Ausbau)* Mini-Badge ⚡ Verhalten angepasst (Einzelnotiz-Modus)
+- [ ] *(Voll-Ausbau)* Duration-Badge im On-Device-Modus ausgeblendet
+- [x] Feature-Flag "On-Device Whisper (Beta)" in Einstellungen, Standard AUS
+- [x] Automatischer Fallback auf Cloud bei jedem On-Device-Fehler
+- [ ] *(Voll-Ausbau)* `StylePrompts.kt`: Übergangsglättung zwischen Chunks
+- [ ] *(Voll-Ausbau)* Füllwort-Entfernung/Punktuation/Absatztrenner auf Gesamtpuffer statt pro Chunk
+- [ ] *(Voll-Ausbau)* Auto-Minimize pausiert bei offener Session mit ungesendetem Puffer
+- [x] `CostTracker`: On-Device = 0€, nur finaler Claude-Call zählt
 - [ ] Test auf echtem Gerät (Nothing Phone 3a): Performance, Akku, Transkriptionsqualität
 
 **Prozess-Regeln für die Umsetzung dieses Features:**
