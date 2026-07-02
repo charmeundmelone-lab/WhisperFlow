@@ -45,6 +45,23 @@ Wenn das mit "non-fast-forward" scheitert (weil main schon weiter ist):
 git fetch origin main && git rebase origin/main && git push origin HEAD:main
 ```
 
+### Branch-Realität in Cloud-Sessions (Fund vom 2026-07-01) — WICHTIG
+
+In Claude-Code-Web-Sessions ist der Git-Zugriffsproxy technisch auf den zugewiesenen
+Feature-Branch beschränkt. Direkter Push auf `main`, das Setzen von Git-Tags UND das
+Löschen von Branches (`git push origin --delete ...`) schlagen alle mit **HTTP 403** fehl —
+unabhängig davon, was oben steht. Nicht mit `--force` erzwingen. Stattdessen:
+
+```bash
+git push -u origin <zugewiesener-branch>
+```
+und dann per `mcp__github__create_pull_request` einen PR nach `main` erstellen. Der Nutzer
+prüft & merged (oder bittet die Session, den PR-Merge-Tool-Call selbst auszuführen), CI baut
+danach automatisch. Branch-Löschung/Aufräumen muss der Nutzer manuell auf GitHub machen
+(Button auf der PR-Seite). Dieser Weg gilt zusätzlich zum Rebase-Fix oben, nicht als Ersatz —
+falls direkter main-Push doch mal funktioniert (z.B. lokale/Desktop-Session mit vollen
+Rechten), bleibt der Rebase-Fix der schnellere Weg.
+
 ### Stop-Hook "Unverified commits" — Fix
 
 ```bash
@@ -169,22 +186,127 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper — NEUE IDEE (NÄCHSTE AUFGABE)
+### 1. On-Device Whisper — ausführlich geplant, Umsetzung zurückgebaut (Stand 2026-07-01)
 
-**Status:** User hat eine neue "geniale Idee" für lokales Whisper in Verbindung mit Claude Haiku.
-Details noch nicht besprochen — nächste Session klären!
+**Status:** Eine vorherige Session hat das Konzept komplett durchgeplant (siehe Architektur
+unten) und zwei Umsetzungs-Meilensteine begonnen (NDK/CMake-Tooling + whisper.cpp vendored
+mit JNI-Bridge, beides in CI verifiziert). Der Nutzer hat die Umsetzung danach **bewusst
+zurückbauen lassen** (PR geschlossen, nicht gemerged — `main` war ohnehin nie betroffen,
+siehe Branch-Realität oben) und möchte das Feature in einer neuen Session/mit einem anderen
+Modell nochmal angehen. **Die Checkliste unten ist deshalb wieder komplett offen (0/14) —
+kein Code aus dem vorherigen Versuch existiert noch im Repo.**
 
-**Bisheriger Plan (kann überholt sein durch neue Idee):**
-- Library: `com.microsoft.onnxruntime:onnxruntime-android`
-- Modell: `whisper-tiny-int8` (~40MB, in `filesDir`)
-- Audio-Pipeline: M4A → PCM 16kHz mono via `MediaExtractor` + `MediaCodec`
-- Nothing Phone 3a (Snapdragon 7s Gen 3, 8GB RAM): gut geeignet
+**Die Architektur-Entscheidungen unten sind das Ergebnis einer langen, sorgfältigen
+Q&A-Planungsrunde mit dem Nutzer — als Ausgangspunkt/Referenz gedacht, NICHT als in Stein
+gemeißelt.** Eine neue Session darf und soll sie hinterfragen, falls ein anderer Ansatz
+sinnvoller erscheint — aber muss nicht bei null anfangen, falls die Entscheidungen weiterhin
+passen.
 
-**Kostenkontext (Budget):**
-- Ziel: €10/Monat für 2 Personen
-- Mindestdauer 1,5s schützt bereits vor versehentlichen Taps
-- Whisper: $0.006/min — Google STT wäre 3× teurer, keine Alternative
-- Haiku Fine-Tuning: nicht möglich (Anthropic bietet das nicht an)
+**Was konkret schiefgelaufen ist / zum Rückbau führte:** kein technisches Problem mit
+whisper.cpp selbst (beide Meilensteine liefen erfolgreich durch CI) — der Nutzer war mit dem
+Gesamtverlauf der Session unzufrieden (u.a. eine Verwirrung um Branch-Push-Rechte, siehe
+"Branch-Realität" oben, und generelles Unbehagen beim Umfang/Tempo) und ist außerdem im
+Sessionverlauf ans Wochen-Tokenlimit gestoßen. Eine neue Session sollte daher: (a) kleinere,
+noch klarer bestätigte Schritte machen, (b) den Nutzer nicht mit zu vielen Rückfragen auf
+einmal konfrontieren, (c) den Tokenverbrauch im Blick behalten und früh genug Bescheid geben,
+wenn eine größere Aufgabe (wie natives Whisper.cpp) realistischerweise mehrere Sessions
+braucht.
+
+**Architektur-Entscheidungen (aus der Planungsrunde, siehe Begründung oben):**
+- **Runtime:** whisper.cpp (GGML), eigene Einbettung (offizielles `ggml-org/whisper.cpp`
+  Android-Beispiel als Vorlage). Kein Code-Copy-Paste von Fremd-Apps.
+- **Modell:** `large-v3-turbo`, multilingual, quantisiert — beste erreichbare Qualität bei
+  noch akzeptabler Geschwindigkeit auf dem Nothing Phone 3a (Snapdragon 7s Gen 3, 8GB RAM).
+- **Chunk-Grenze:** feste 30s (Whisper-Architekturgrenze) + bestehende BOOM-Vorwarnung
+  (10s-Blinken) als Signal für bewusste Sprechpause. Kein VAD.
+- **Session-Fortsetzung:** kurzer Tap auf Button = nächster Chunk startet, Text landet in
+  internem Puffer (App-State, **nicht** System-Zwischenablage — die ist zu unzuverlässig).
+- **Session-Ende:** neues **"Fertig"-Icon-Badge** neben dem Button (Tap = kompletter Puffer
+  geht an Claude, danach Einfügen wie gehabt).
+- **Swipe-up** bleibt reserviert für Aufnahme-Abbrechen (unverändert, NICHT Session-Ende).
+- **Cloud vs. Lokal:** Hybrid — On-Device wird Standard, Cloud-Whisper bleibt wählbarer
+  Fallback (z.B. im Radialmenü).
+- **Fehlendes Modell oder JEDER On-Device-Fehler** (native Lib lädt nicht, Inferenz-Crash,
+  Timeout): automatisch und still auf Cloud-Whisper zurückfallen, keine Fehlermeldung.
+- **Modell-Download:** expliziter Button in den Einstellungen, kein Auto-Download über
+  mobile Daten (~500–600MB quantisiert).
+- **Plattdeutsch-Modus:** kein Sonderfall — verhält sich wie jeder andere Modus unter der
+  normalen Hybrid-Regel.
+- **Mini-Badge ⚡:** bleibt erhalten als "Einzelne Kurznotiz" — kurze Aufnahme, danach
+  automatisch fertig (kein Warten auf Tap oder Fertig-Icon, direkt zu Claude).
+- **Duration-Badge (30s/90s/3m/5m):** wird **ausgeblendet, solange On-Device aktiv ist**
+  (nur noch im Cloud-Modus relevant, da dort weiterhin am Stück bis 5min möglich ist).
+- **StylePrompts.kt:** Ergänzung zur Glättung von Übergängen zwischen Chunk-Texten nötig.
+- **Füllwort-Entfernung/Punktuation/Absatztrenner:** einmal auf dem **gesamten**
+  zusammengefügten Puffer anwenden, nicht pro Chunk (sonst brechen Wörter/Satzzeichen an
+  Chunk-Grenzen).
+- **Auto-Minimize (5s):** darf nicht zuschlagen, solange eine Session mit ungesendetem
+  Puffer wartet (analog zur bestehenden Pause-Logik bei Aufnahme/Menü).
+- **CostTracker:** On-Device-Chunks = 0€ Transkriptionskosten, nur der eine finale
+  Claude-Call zählt.
+
+**Fallback-Sicherheit (4 Ebenen, damit die App im schlimmsten Fall bleibt wie heute):**
+1. Feature-Flag "On-Device Whisper (Beta)" in den Einstellungen, Standard AUS.
+2. Automatischer Laufzeit-Fallback: jeder On-Device-Fehler → Cloud-Whisper für diese eine Aufnahme.
+3. Lazy-Loading der nativen `.so`-Bibliothek: wird NUR geladen, wenn On-Device tatsächlich
+   genutzt wird, immer in `try/catch` — nie beim App-Start, sonst könnte ein Bug in der
+   nativen Integration auch den bisherigen Cloud-Pfad crashen.
+4. `main` bleibt unangetastet bis PR-Merge (siehe Branch-Realität oben) — dient selbst als
+   Rollback-Punkt, kein separates Tag nötig. (In der Praxis bewährt: genau dieser Mechanismus
+   hat den vollständigen, folgenlosen Rückbau am 2026-07-01 ermöglicht.)
+
+**Feature-Auswirkungen (aus der Planungsrunde):**
+- Bleibt unverändert: Bottom-Sheet-Editor, Radialmenü, Stil-Profile, Text-Injection,
+  Keystore, App-Icon, u.v.m.
+- Wird im On-Device-Modus obsolet: Duration-Badge (nur noch im Cloud-Modus relevant).
+- Bedeutungsänderung: BOOM! (Chunk-Ende statt finaler Stopp), ⚡ Mini-Badge (Einzelnotiz
+  statt Zeit-Preset).
+- Technische Anpassung nötig, gleicher Inhalt: Füllwort-Entfernung/Punktuation/Absatztrenner
+  (einmal auf Gesamtpuffer statt pro Chunk), Status-Overlay, Auto-Minimize, CostTracker.
+- Wird nützlicher: Kreative Absatztrenner, Bottom-Sheet-Editor (bei langen Multi-Chunk-Texten).
+
+**CI-Auswirkung:** Braucht künftig Android NDK + CMake für die native Kompilierung von
+whisper.cpp (bisher reines Gradle+JDK, kein NDK) — echte Erweiterung der Build-Pipeline.
+War in Meilenstein 1 bereits erfolgreich in echter CI verifiziert (Build ~1:35min), Code aber
+mit dem Rückbau wieder entfernt — muss neu aufgesetzt werden.
+
+**Lizenz-Hinweis:** Referenz-Apps `woheller69/whisperIME` (MIT) und `whisperIMEplus`
+(GPL-3.0) dienten nur als Architektur-Inspiration (30s-Chunking-Verhalten: "kurz loslassen,
+neu drücken, während der Transkription weiterreden"), kein Code wurde übernommen — eigene
+Implementierung in Kotlin + whisper.cpp geplant, daher keine Lizenzpflicht. Whisper.cpp selbst
+(`ggml-org/whisper.cpp`) ist MIT-lizenziert und zur Einbindung gedacht.
+
+**Fortschritts-Checkliste (zurückgesetzt, 0/14 — bei jedem fertigen Schritt sofort abhaken + committen):**
+- [ ] NDK/CMake-Setup im CI-Workflow
+- [ ] whisper.cpp als natives Modul eingebunden (JNI-Bridge)
+- [ ] Modell-Download-Flow (expliziter Button, `large-v3-turbo` quantisiert)
+- [ ] Chunk-Buffer-Logik in `FloatingButtonService` (Session-State statt Zwischenablage)
+- [ ] "Fertig"-Icon-Badge (UI + Tap-Handler)
+- [ ] Mini-Badge ⚡ Verhalten angepasst (Einzelnotiz-Modus)
+- [ ] Duration-Badge im On-Device-Modus ausgeblendet
+- [ ] Feature-Flag "On-Device Whisper (Beta)" in Einstellungen, Standard AUS
+- [ ] Automatischer Fallback auf Cloud bei jedem On-Device-Fehler
+- [ ] `StylePrompts.kt`: Übergangsglättung zwischen Chunks
+- [ ] Füllwort-Entfernung/Punktuation/Absatztrenner auf Gesamtpuffer statt pro Chunk
+- [ ] Auto-Minimize pausiert bei offener Session mit ungesendetem Puffer
+- [ ] `CostTracker`: On-Device = 0€, nur finaler Claude-Call zählt
+- [ ] Test auf echtem Gerät (Nothing Phone 3a): Performance, Akku, Transkriptionsqualität
+
+**Prozess-Regeln für die Umsetzung dieses Features:**
+- **Tokenbudget im Blick behalten:** Vor Beginn größerer Arbeit kurz einschätzen, ob das
+  Restbudget realistisch reicht. Lieber früh sagen "das braucht mehrere Sessions" als
+  mittendrin abzubrechen.
+- **Agent-Einsatz:** Für jeden Checklisten-Punkt wird bevorzugt ein Agent mit klar
+  umrissenem Auftrag gestartet (spart Hauptkontext/Tokens). Agents committen NICHT selbst —
+  sie liefern nur fertige Datei-Änderungen zurück. Commit + Push macht ausschließlich die
+  Hauptsession, zentral an einer Stelle. Unabhängige Schritte können als parallele
+  Agent-Calls gebündelt werden, abhängige Schritte laufen nacheinander.
+- **Milestone-Checkpoints statt Einzelschritt-Rückfragen:** Nach jedem größeren Meilenstein
+  (nicht nach jedem Mini-Schritt) gibt es einen PR + kurze Statusmeldung an den Nutzer —
+  zwingend vor allem, was sich nur auf einem echten Gerät verifizieren lässt.
+- **Nicht alles in einem Rutsch:** Der Nutzer hat ausdrücklich betont, dass er sichtbare
+  Zwischenerfolge braucht (nicht "alles in einer Loop bis fertig"). Nach jedem Meilenstein
+  kurz innehalten, Ergebnis zeigen, erst danach weitermachen.
 
 ### 2. EncryptedSharedPreferences für API-Keys
 Aktuell: plain `SharedPreferences`. Für Privatnutzung akzeptabel aber technische Schuld.
