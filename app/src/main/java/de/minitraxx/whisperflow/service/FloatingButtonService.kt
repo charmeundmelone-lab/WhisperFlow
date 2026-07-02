@@ -157,6 +157,7 @@ class FloatingButtonService : Service() {
         const val KEY_LANGUAGE = "whisper_language"
         const val KEY_PREVIEW_ENABLED = "preview_enabled"
         const val KEY_ONDEVICE_WHISPER = "ondevice_whisper"
+        const val KEY_ONDEVICE_LAST_DIAG = "ondevice_last_diag"
         const val KEY_EMOJI_LEVEL = "emoji_level"
         const val KEY_EMOJI_ENABLED = "emoji_enabled"
         const val KEY_HEADINGS_ENABLED = "headings_enabled"
@@ -1282,6 +1283,18 @@ class FloatingButtonService : Service() {
      * Jeder On-Device-Fehler fällt still auf Cloud-Whisper zurück (CLAUDE.md-Regel).
      * Kosten werden nur für den tatsächlich genutzten Cloud-Pfad erfasst.
      */
+    /**
+     * Diagnose der letzten Transkription — sichtbar in der On-Device-Settings-Card.
+     * Der Fallback bleibt für den Nutzer im Diktier-Flow still; hier steht trotzdem
+     * nachvollziehbar, welcher Pfad lief und warum.
+     */
+    private fun recordLocalDiag(message: String) {
+        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_ONDEVICE_LAST_DIAG, "$time · $message").apply()
+    }
+
     private suspend fun smartTranscribe(
         file: File,
         whisperLanguage: String,
@@ -1290,16 +1303,29 @@ class FloatingButtonService : Service() {
         trackCost: Boolean
     ): Result<String> {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val localEligible = prefs.getBoolean(KEY_ONDEVICE_WHISPER, false) &&
-            durationMs in 1..LOCAL_WHISPER_MAX_MS &&
-            ModelManager.isModelAvailable(this)
+        val flagOn = prefs.getBoolean(KEY_ONDEVICE_WHISPER, false)
+        val durationOk = durationMs in 1..LOCAL_WHISPER_MAX_MS
+        val modelOk = ModelManager.isModelAvailable(this)
 
-        if (localEligible) {
+        if (flagOn && durationOk && modelOk) {
             showStatus("Transkribiere (lokal)...", Color.parseColor("#8E8E93"))
+            val startedAt = System.currentTimeMillis()
             val local = LocalWhisperEngine.transcribe(this, file, whisperLanguage)
-            local.getOrNull()?.let { return Result.success(it) }
-            // Stiller Fallback: keine Fehlermeldung, direkt Cloud
+            local.getOrNull()?.let {
+                val secs = (System.currentTimeMillis() - startedAt) / 1000.0
+                recordLocalDiag("Lokal ✓ — ${durationMs / 1000}s Audio in ${"%.1f".format(secs)}s (0 €)")
+                return Result.success(it)
+            }
+            // Stiller Fallback: keine Fehlermeldung im Diktier-Flow, direkt Cloud
+            recordLocalDiag("Cloud-Fallback — ${local.exceptionOrNull()?.message?.take(90) ?: "unbekannter Fehler"}")
             showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
+        } else {
+            val reason = when {
+                !flagOn     -> "Schalter aus"
+                !durationOk -> "Aufnahme über 30s"
+                else        -> "Modell fehlt oder unvollständig"
+            }
+            recordLocalDiag("Cloud — $reason")
         }
 
         if (openAiKey.isBlank()) {
