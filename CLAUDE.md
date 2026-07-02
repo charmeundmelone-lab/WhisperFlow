@@ -209,11 +209,20 @@ bleibt als Referenz für eine spätere Voll-Ausbaustufe stehen.
 - CI: sdkmanager installiert NDK+CMake vor dem Build
 - Status-Text zeigt "Transkribiere (lokal)..." beim lokalen Versuch — so ist auf dem Gerät erkennbar, welcher Pfad lief
 
-**Noch offen (Option 1):** Test auf dem echten Gerät (Nothing Phone 3a): Modell-Download,
-Geschwindigkeit large-v3-turbo q5_0 (~10–60s für 30s Audio erwartet, erster Lauf +Modell-Load
-~5–10s), Transkriptionsqualität, Akku. Falls Tempo enttäuscht: kleineres Modell (z.B.
-`small`/`medium`-q5) als Alternative im ModelManager anbieten — bewusst NICHT vorauseilend
-eingebaut.
+**Nachtrag 2026-07-02 (nach Geräte-Test):** large-v3-turbo funktionierte auf dem Gerät
+(Qualität "perfekt" laut Nutzer), war aber unbrauchbar langsam (>60s, Gerät warm). Deshalb
+zwei Performance-Maßnahmen umgesetzt:
+- **Modell-Auswahl im ModelManager/Settings-Card:** "Schnell (small)" (`ggml-small-q5_1.bin`,
+  ~190MB, Empfehlung) vs. "Maximale Qualität (large-v3-turbo)". Auswahl in
+  `KEY_ONDEVICE_MODEL` (`ondevice_model`: `small`/`turbo`); ohne explizite Wahl nimmt
+  `selectedModel()` das schnellste vorhandene Modell.
+- **audio_ctx-Optimierung:** Encoder-Kontext wird auf die tatsächliche Audiolänge begrenzt
+  (`ceil(len/30*1500)+64`, Kappe 1500, ab ≥29s Default) — Whisper rechnet sonst immer das
+  volle 30s-Fenster durch. Größter Gewinn bei 10s-⚡-Aufnahmen (~3x).
+
+**Noch offen (Option 1):** Geräte-Test mit `small`+audio_ctx (Erwartung: ⚡10s in ~2–6s,
+30s in ~10–20s). Falls small-Qualität nicht reicht: `medium-q5_0` wäre die Zwischenstufe
+(aber kaum schneller als turbo — eher unattraktiv); GPU/Vulkan bewusst nicht angefasst.
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut

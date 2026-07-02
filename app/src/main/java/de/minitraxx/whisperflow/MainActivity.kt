@@ -467,9 +467,12 @@ fun OnDeviceWhisperCard(
 ) {
     val context = LocalContext.current
     val downloadState by ModelManager.state.collectAsState()
-    // Verfügbarkeit neu prüfen, sobald sich der Download-Zustand ändert
-    val modelAvailable = remember(downloadState) { ModelManager.isModelAvailable(context) }
-    val modelSizeMb = remember(downloadState) { ModelManager.modelFile(context).length() / (1024 * 1024) }
+    var selectedId by remember { mutableStateOf(ModelManager.selectedModel(context).id) }
+    // Auswahl nach Download/Löschen neu auflösen (Auto-Fallback auf vorhandenes Modell)
+    LaunchedEffect(downloadState) { selectedId = ModelManager.selectedModel(context).id }
+    val anyModelAvailable = remember(downloadState) {
+        ModelManager.MODELS.any { ModelManager.isAvailable(context, it) }
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -499,77 +502,103 @@ fun OnDeviceWhisperCard(
             }
 
             Spacer(Modifier.height(12.dp))
+            Text("Modell", color = Color(0xFF8E8E93), fontSize = 13.sp)
+            Spacer(Modifier.height(6.dp))
 
-            when {
-                modelAvailable -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "✓ Modell vorhanden (large-v3-turbo, $modelSizeMb MB)",
-                            color = Color(0xFF30D158), fontSize = 13.sp,
-                            modifier = Modifier.weight(1f)
+            ModelManager.MODELS.forEach { model ->
+                val available = remember(downloadState) { ModelManager.isAvailable(context, model) }
+                val sizeMb = remember(downloadState) { ModelManager.modelFile(context, model).length() / (1024 * 1024) }
+                val isSelected = selectedId == model.id
+                val dl = downloadState as? ModelManager.DownloadState.Downloading
+                val isDownloadingThis = dl?.modelId == model.id
+                val failed = (downloadState as? ModelManager.DownloadState.Failed)
+                    ?.takeIf { it.modelId == model.id }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (isSelected) Color(0xFF2C2C2E) else Color.Transparent,
+                            RoundedCornerShape(10.dp)
                         )
-                        TextButton(onClick = { ModelManager.deleteModel(context) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                            Text("Löschen", color = Color(0xFFFF453A), fontSize = 12.sp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = {
+                                selectedId = model.id
+                                ModelManager.setSelectedModel(context, model.id)
+                            },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = Color(0xFF30D158),
+                                unselectedColor = Color(0xFF8E8E93)
+                            )
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(model.label, color = Color.White, fontSize = 13.sp)
+                            Text(
+                                if (available) "✓ vorhanden ($sizeMb MB)" else model.sizeLabel,
+                                color = if (available) Color(0xFF30D158) else Color(0xFF8E8E93),
+                                fontSize = 11.sp
+                            )
+                        }
+                        when {
+                            isDownloadingThis -> TextButton(
+                                onClick = { ModelManager.cancelDownload() },
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) { Text("Abbrechen", color = Color(0xFFFF453A), fontSize = 12.sp) }
+                            available -> TextButton(
+                                onClick = { ModelManager.deleteModel(context, model) },
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) { Text("Löschen", color = Color(0xFFFF453A), fontSize = 12.sp) }
+                            else -> TextButton(
+                                onClick = { ModelManager.startDownload(context, model) },
+                                enabled = downloadState !is ModelManager.DownloadState.Downloading,
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text(
+                                    if (failed != null) "Fortsetzen" else "Laden",
+                                    color = Color(0xFF0A84FF), fontSize = 12.sp
+                                )
+                            }
                         }
                     }
-                    if (!enabled) {
-                        Text(
-                            "Schalter oben aktivieren, um lokal zu transkribieren.",
-                            color = Color(0xFF8E8E93), fontSize = 12.sp
-                        )
-                    }
-                }
-                downloadState is ModelManager.DownloadState.Downloading -> {
-                    val dl = downloadState as ModelManager.DownloadState.Downloading
-                    val pct = dl.percent
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isDownloadingThis && dl != null) {
                         Text(
                             if (dl.bytesTotal > 0)
-                                "Lade Modell... $pct % (${dl.bytesDone / (1024 * 1024)} / ${dl.bytesTotal / (1024 * 1024)} MB)"
+                                "Lade... ${dl.percent} % (${dl.bytesDone / (1024 * 1024)} / ${dl.bytesTotal / (1024 * 1024)} MB)"
                             else
-                                "Lade Modell... ${dl.bytesDone / (1024 * 1024)} MB",
-                            color = Color.White, fontSize = 13.sp,
-                            modifier = Modifier.weight(1f)
+                                "Lade... ${dl.bytesDone / (1024 * 1024)} MB",
+                            color = Color.White, fontSize = 11.sp
                         )
-                        TextButton(onClick = { ModelManager.cancelDownload() }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                            Text("Abbrechen", color = Color(0xFFFF453A), fontSize = 12.sp)
-                        }
+                        Spacer(Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { (dl.percent / 100f).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = Color(0xFF30D158),
+                            trackColor = Color(0xFF1C1C1E)
+                        )
+                        Spacer(Modifier.height(4.dp))
                     }
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { (pct / 100f).coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth().height(4.dp),
-                        color = Color(0xFF30D158),
-                        trackColor = Color(0xFF2C2C2E)
-                    )
-                }
-                else -> {
-                    if (downloadState is ModelManager.DownloadState.Failed) {
+                    if (failed != null) {
                         Text(
-                            "Fehler: ${(downloadState as ModelManager.DownloadState.Failed).message}",
-                            color = Color(0xFFFF453A), fontSize = 12.sp,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            "Fehler: ${failed.message}",
+                            color = Color(0xFFFF453A), fontSize = 11.sp
                         )
                     }
-                    Button(
-                        onClick = { ModelManager.startDownload(context) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A84FF)),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            if (downloadState is ModelManager.DownloadState.Failed) "Download fortsetzen"
-                            else "Modell herunterladen (${ModelManager.MODEL_SIZE_LABEL})",
-                            fontSize = 14.sp
-                        )
-                    }
-                    Text(
-                        "Am besten im WLAN laden. Ein abgebrochener Download wird beim nächsten Versuch fortgesetzt.",
-                        color = Color(0xFF8E8E93), fontSize = 11.sp, lineHeight = 15.sp,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
                 }
+                Spacer(Modifier.height(4.dp))
             }
+
+            Text(
+                if (anyModelAvailable && !enabled)
+                    "Schalter oben aktivieren, um lokal zu transkribieren."
+                else
+                    "Empfehlung: „Schnell (small)" — ~5-6x schneller als large-v3-turbo, Haiku glättet den Text danach ohnehin. Am besten im WLAN laden; abgebrochene Downloads werden fortgesetzt.",
+                color = Color(0xFF8E8E93), fontSize = 11.sp, lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
 
             if (lastDiag.isNotBlank()) {
                 Spacer(Modifier.height(10.dp))

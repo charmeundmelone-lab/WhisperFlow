@@ -52,7 +52,7 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeInit(
 extern "C" JNIEXPORT jstring JNICALL
 Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
         JNIEnv *env, jobject /*thiz*/, jlong ctx_ptr, jfloatArray samples,
-        jstring language, jint n_threads, jstring initial_prompt) {
+        jstring language, jint n_threads, jstring initial_prompt, jint audio_ctx) {
     auto *ctx = reinterpret_cast<whisper_context *>(ctx_ptr);
     if (ctx == nullptr || samples == nullptr) return nullptr;
 
@@ -80,6 +80,11 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
     params.language         = (lang != nullptr && lang[0] != '\0') ? lang : "auto";
     if (prompt != nullptr && prompt[0] != '\0') {
         params.initial_prompt = prompt;
+    }
+    // Encoder-Kontext auf die tatsächliche Audiolänge begrenzen (0 = volles 30s-Fenster).
+    // Beschleunigt kurze Aufnahmen massiv, weil Whisper sonst immer 30s durchrechnet.
+    if (audio_ctx > 0 && audio_ctx <= 1500) {
+        params.audio_ctx = audio_ctx;
     }
 
     const int rc = whisper_full(ctx, params, pcm, n_samples);

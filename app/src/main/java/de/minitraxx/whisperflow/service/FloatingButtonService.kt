@@ -1313,7 +1313,8 @@ class FloatingButtonService : Service() {
             val local = LocalWhisperEngine.transcribe(this, file, whisperLanguage)
             local.getOrNull()?.let {
                 val secs = (System.currentTimeMillis() - startedAt) / 1000.0
-                recordLocalDiag("Lokal ✓ — ${durationMs / 1000}s Audio in ${"%.1f".format(secs)}s (0 €)")
+                val modelId = ModelManager.selectedModel(this).id
+                recordLocalDiag("Lokal ✓ ($modelId) — ${durationMs / 1000}s Audio in ${"%.1f".format(secs)}s (0 €)")
                 return Result.success(it)
             }
             // Stiller Fallback: keine Fehlermeldung im Diktier-Flow, direkt Cloud

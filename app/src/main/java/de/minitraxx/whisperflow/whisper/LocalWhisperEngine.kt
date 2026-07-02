@@ -63,11 +63,17 @@ object LocalWhisperEngine {
     private fun doTranscribe(context: Context, audioFile: File, language: String): String {
         check(WhisperJni.ensureLoaded()) { "Native Lib nicht ladbar" }
 
-        val modelFile = ModelManager.modelFile(context)
+        val modelFile = ModelManager.selectedModelFile(context)
         check(modelFile.exists() && modelFile.length() > 0) { "Modell fehlt" }
 
         val samples = AudioDecoder.decodeToWhisperPcm(audioFile)
         check(samples.isNotEmpty()) { "Keine Audio-Samples" }
+
+        // audio_ctx-Optimierung: Encoder nur so groß rechnen wie das Audio wirklich ist
+        // (1500 Tokens = 30s). +64 Sicherheitsmarge; 0 = whisper-Default (volles Fenster).
+        val lenSeconds = samples.size.toDouble() / AudioDecoder.WHISPER_SAMPLE_RATE
+        val audioCtx = if (lenSeconds >= 29.0) 0
+            else (Math.ceil(lenSeconds / 30.0 * 1500.0).toInt() + 64).coerceIn(128, 1500)
 
         synchronized(this) {
             if (ctxPtr == 0L || loadedModelPath != modelFile.absolutePath) {
@@ -84,9 +90,9 @@ object LocalWhisperEngine {
 
         val threads = min(4, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
         val start = System.currentTimeMillis()
-        val text = WhisperJni.nativeTranscribe(ctxPtr, samples, language.trim(), threads, INITIAL_PROMPT)
+        val text = WhisperJni.nativeTranscribe(ctxPtr, samples, language.trim(), threads, INITIAL_PROMPT, audioCtx)
             ?: throw IllegalStateException("Native Transkription fehlgeschlagen")
-        Log.i(TAG, "Lokale Transkription: ${samples.size / AudioDecoder.WHISPER_SAMPLE_RATE}s Audio in ${System.currentTimeMillis() - start}ms")
+        Log.i(TAG, "Lokale Transkription (${modelFile.name}, audio_ctx=$audioCtx): ${samples.size / AudioDecoder.WHISPER_SAMPLE_RATE}s Audio in ${System.currentTimeMillis() - start}ms")
         return text.trim()
     }
 
