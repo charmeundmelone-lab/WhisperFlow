@@ -246,10 +246,39 @@ nichts. Fix-Paket v1.2.2:
   `-O3` in cFlags/cppFlags als Sicherheitsnetz (letztes `-O`-Flag gewinnt bei Clang immer)
 - Threads 4→6 (Snapdragon 7s Gen 3 hat 8 Kerne, vorher ungenutzt)
 
-**Noch offen (Option 1):** Geräte-Test v1.2.2 mit `small`+Release-Build+SIMD+audio_ctx
-(Erwartung: ⚡10s in ~1–3s, 30s in ~5–10s — Release-Build sollte den größten Einzelsprung
-bringen). Falls weiterhin zu langsam → Plan B (TFLite wie whisperIME). GPU/Vulkan bewusst
-nicht angefasst.
+**Nachtrag 4 (2026-07-03, Geräte-Test v1.2.2):** Nutzer meldet weiterhin ~2min für 10s Audio
+— der Release-Fix hat also NICHT geholfen wie erwartet. Statt weiter zu raten: Tiefendiagnose
+per CI-Verbose-Build (`-Pandroid.native.buildOutput=verbose --info`, PR #10) hat die tatsächliche
+`cmake`-Kommandozeile aus dem echten Build-Log extrahiert:
+```
+-DCMAKE_C_FLAGS=-march=armv8.2-a+dotprod+fp16 -O3
+-DCMAKE_CXX_FLAGS=-std=c++17 -march=armv8.2-a+dotprod+fp16 -O3
+... -DCMAKE_BUILD_TYPE=Release
+```
+plus alle 32 ggml/whisper.cpp-Objektdateien wurden nachweislich frisch kompiliert (FetchContent
+lädt bei jedem CI-Run neu, ephemere Runner — kein Cache-Fehlalarm). Zusätzlich per ELF-Analyse
+der ausgelieferten APK bestätigt: `ggml_cpu_has_dotprod()` ist fest auf `1` kompiliert, 480
+sdot/udot-Instruktionen im Binary vorhanden. **Fazit: Release-Optimierung + ARM-SIMD sind
+zweifelsfrei korrekt im Build — das war nicht (mehr) die Ursache.**
+
+Wahrscheinlichste verbleibende Erklärung: das auf dem Gerät **ausgewählte Modell** ist noch
+`turbo` (547MB) aus dem allerersten Test, nicht `small` — die Auswahl steht explizit in
+SharedPreferences (`ondevice_model`) und wird durch keinen der bisherigen Fixes zurückgesetzt.
+2min für 10s Audio passt eher zu turbo auf CPU als zu small mit allen Optimierungen.
+
+Fix-Paket (Diagnose-Instrumentierung, noch kein Verhaltens-Fix):
+- `LocalWhisperEngine`: jede Phase (Lib/Decode/Modell/Inferenz) wird einzeln mit Timestamp
+  geloggt (`adb logcat -s LocalWhisperEngine`), auch wenn der Timeout die finale Zeile nie erreicht
+- Timeout-Meldung (auch in der UI-Diagnose-Card sichtbar, kein logcat nötig) nennt jetzt
+  **Modell-ID + hängende Phase + Dauer + ob `ggml_cpu_has_dotprod()` zur Laufzeit true liefert**
+  (neue JNI-Funktion `nativeHasDotprod`) — z.B. "On-Device-Timeout: Modell=turbo, Phase='Inferenz'
+  (89523ms), dotprod=true"
+
+**Noch offen (Option 1):** Nutzer muss in den Einstellungen prüfen/explizit auf "Schnell (small)"
+umstellen, dann erneut testen — die neue Diagnosezeile zeigt dann zweifelsfrei Modell + Phase.
+Falls small mit Release-Build weiterhin >>10s braucht, ist der nächste Verdacht Geräte-seitiges
+CPU-Throttling/Background-Priority (Nothing OS), nicht mehr der Compile-Pfad. Falls das bestätigt
+und weiterhin zu langsam → Plan B (TFLite wie whisperIME). GPU/Vulkan bewusst nicht angefasst.
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut

@@ -48,6 +48,10 @@ object LocalWhisperEngine {
     @Volatile
     private var phaseStartedAt: Long = 0L
 
+    /** Welches Modell gerade läuft — für die Timeout-Diagnose (z.B. versehentlich "turbo" statt "small"). */
+    @Volatile
+    private var runningModelId: String = "?"
+
     /**
      * Transkribiert [audioFile] (M4A) lokal. [language] wie beim Cloud-Aufruf:
      * ""/blank = automatische Erkennung, sonst ISO-Code ("de", "en", ...).
@@ -69,7 +73,7 @@ object LocalWhisperEngine {
                 val stuckMs = System.currentTimeMillis() - phaseStartedAt
                 val dotprod = WhisperJni.hasDotprod()
                 Result.failure(IllegalStateException(
-                    "On-Device-Timeout in '$phase' (${stuckMs}ms), dotprod=$dotprod"
+                    "On-Device-Timeout: Modell=$runningModelId, Phase='$phase' (${stuckMs}ms), dotprod=$dotprod"
                 ))
             }
     }
@@ -93,6 +97,7 @@ object LocalWhisperEngine {
 
         val modelFile = ModelManager.selectedModelFile(context)
         check(modelFile.exists() && modelFile.length() > 0) { "Modell fehlt" }
+        runningModelId = ModelManager.selectedModel(context).id
 
         enterPhase("Audio-Dekodierung")
         val samples = AudioDecoder.decodeToWhisperPcm(audioFile)
