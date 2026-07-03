@@ -48,7 +48,7 @@ object LocalWhisperEngine {
     @Volatile
     private var phaseStartedAt: Long = 0L
 
-    /** Welches Modell gerade läuft — für die Timeout-Diagnose (z.B. versehentlich "turbo" statt "small"). */
+    /** Welches Modell gerade läuft — steht mit in der Timeout-Diagnose. */
     @Volatile
     private var runningModelId: String = "?"
 

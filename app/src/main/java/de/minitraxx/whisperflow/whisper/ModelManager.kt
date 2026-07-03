@@ -17,9 +17,13 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
- * Verwaltet die Whisper-Modelle. Zwei Stufen zur Auswahl:
- *  - "Schnell" (small, q5_1, ~190 MB) — Empfehlung fürs Handy, ~5-6x schneller
- *  - "Maximale Qualität" (large-v3-turbo, q5_0, ~547 MB) — beste Qualität, aber langsam auf CPU
+ * Verwaltet die Whisper-Modelle. Aktuell nur eine Stufe:
+ *  - "Schnell" (small, q5_1, ~190 MB) — einzige Option fürs Handy
+ *
+ * "large-v3-turbo" wurde nach Geräte-Tests entfernt: selbst mit Release-Build +
+ * ARM-SIMD-Optimierung (siehe CLAUDE.md) blieb es für den Diktier-Anwendungsfall
+ * unbrauchbar langsam. `cleanupOrphanedModels()` räumt eine evtl. schon
+ * heruntergeladene turbo-Datei von Altinstallationen automatisch weg.
  *
  * Download nur über expliziten Button in den Einstellungen — nie automatisch.
  * Der Download läuft in einem eigenen Prozess-Scope weiter, solange die App lebt,
@@ -28,7 +32,6 @@ import java.util.concurrent.TimeUnit
 object ModelManager {
 
     const val MODEL_SMALL = "small"
-    const val MODEL_TURBO = "turbo"
     const val KEY_ONDEVICE_MODEL = "ondevice_model"
     private const val PREFS_NAME = "whisperflow_prefs"
 
@@ -50,14 +53,6 @@ object ModelManager {
             minValidBytes = 150L * 1024 * 1024,
             label = "Schnell (small)",
             sizeLabel = "~190 MB"
-        ),
-        ModelInfo(
-            id = MODEL_TURBO,
-            fileName = "ggml-large-v3-turbo-q5_0.bin",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-            minValidBytes = 400L * 1024 * 1024,
-            label = "Maximale Qualität (large-v3-turbo)",
-            sizeLabel = "~550 MB"
         )
     )
 
@@ -114,6 +109,23 @@ object ModelManager {
     fun isModelAvailable(context: Context): Boolean = isAvailable(context, selectedModel(context))
 
     fun isDownloading(): Boolean = downloadJob?.isActive == true
+
+    /**
+     * Löscht Modelldateien, die zu keinem Eintrag in [MODELS] mehr gehören —
+     * z.B. das entfernte "turbo"-Modell aus einer früheren Testinstallation.
+     * Rein aufräumend (Speicherplatz), niemals das aktuell gewählte Modell.
+     */
+    fun cleanupOrphanedModels(context: Context) {
+        if (isDownloading()) return
+        val dir = context.getExternalFilesDir("models") ?: return
+        val keepNames = MODELS.map { it.fileName }.toSet()
+        dir.listFiles()?.forEach { f ->
+            val baseName = f.name.removeSuffix(".part")
+            if (baseName !in keepNames) {
+                runCatching { f.delete() }
+            }
+        }
+    }
 
     // ── Download ───────────────────────────────────────────────────────────────
 
