@@ -71,6 +71,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Räumt z.B. eine schon heruntergeladene "turbo"-Modelldatei aus einer
+        // früheren Testinstallation weg — das Modell ist nicht mehr wählbar.
+        runCatching { ModelManager.cleanupOrphanedModels(this) }
         setContent {
             val refresh = refreshTrigger
             WhisperFlowTheme {
@@ -595,7 +598,7 @@ fun OnDeviceWhisperCard(
                 if (anyModelAvailable && !enabled)
                     "Schalter oben aktivieren, um lokal zu transkribieren."
                 else
-                    "Empfehlung: Schnell (small) — ~5-6x schneller als large-v3-turbo, Haiku glättet den Text danach ohnehin. Am besten im WLAN laden; abgebrochene Downloads werden fortgesetzt.",
+                    "Haiku glättet den Text danach ohnehin. Am besten im WLAN laden; abgebrochene Downloads werden fortgesetzt.",
                 color = Color(0xFF8E8E93), fontSize = 11.sp, lineHeight = 15.sp,
                 modifier = Modifier.padding(top = 4.dp)
             )

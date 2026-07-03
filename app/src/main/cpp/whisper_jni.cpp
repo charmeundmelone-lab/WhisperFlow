@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "whisper.h"
+#include "ggml-cpu.h"
 
 #define LOG_TAG "WhisperJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -110,6 +111,12 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
 
     if (rc != 0) return nullptr;
     return env->NewStringUTF(result.c_str());
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeHasDotprod(
+        JNIEnv * /*env*/, jobject /*thiz*/) {
+    return ggml_cpu_has_dotprod() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

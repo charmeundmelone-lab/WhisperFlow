@@ -32,4 +32,9 @@ internal object WhisperJni {
     ): String?
 
     external fun nativeFree(ctxPtr: Long)
+
+    /** true = CPU + Build unterstützen den ARM-Dotprod-Fastpath (sdot/udot). */
+    fun hasDotprod(): Boolean = runCatching { ensureLoaded() && nativeHasDotprod() }.getOrDefault(false)
+
+    private external fun nativeHasDotprod(): Boolean
 }

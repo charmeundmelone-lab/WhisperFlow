@@ -44,6 +44,14 @@ object LocalWhisperEngine {
     @Volatile
     private var phase: String = "?"
 
+    /** Wie lange die aktuelle Phase schon läuft, wenn der Timeout zuschlägt. */
+    @Volatile
+    private var phaseStartedAt: Long = 0L
+
+    /** Welches Modell gerade läuft — steht mit in der Timeout-Diagnose. */
+    @Volatile
+    private var runningModelId: String = "?"
+
     /**
      * Transkribiert [audioFile] (M4A) lokal. [language] wie beim Cloud-Aufruf:
      * ""/blank = automatische Erkennung, sonst ISO-Code ("de", "en", ...).
@@ -61,19 +69,40 @@ object LocalWhisperEngine {
             }
         }
         return withTimeoutOrNull(TRANSCRIBE_TIMEOUT_MS) { deferred.await() }
-            ?: Result.failure(IllegalStateException("On-Device-Timeout in Phase: $phase"))
+            ?: run {
+                val stuckMs = System.currentTimeMillis() - phaseStartedAt
+                val dotprod = WhisperJni.hasDotprod()
+                Result.failure(IllegalStateException(
+                    "On-Device-Timeout: Modell=$runningModelId, Phase='$phase' (${stuckMs}ms), dotprod=$dotprod"
+                ))
+            }
     }
 
     private fun doTranscribe(context: Context, audioFile: File, language: String): String {
-        phase = "Lib-Laden"
+        // Jede Phase wird sofort geloggt (nicht erst am Ende) — bei einem Timeout
+        // kommt der Code nie zum finalen Log, aber die einzelnen mark()-Zeilen
+        // sind schon in logcat sichtbar und zeigen exakt, wo die Zeit hingeht.
+        val t0 = System.currentTimeMillis()
+        fun mark(label: String) {
+            Log.i(TAG, "Phase '$label' abgeschlossen nach ${System.currentTimeMillis() - t0}ms gesamt")
+        }
+        fun enterPhase(label: String) {
+            phase = label
+            phaseStartedAt = System.currentTimeMillis()
+        }
+
+        enterPhase("Lib-Laden")
         check(WhisperJni.ensureLoaded()) { "Native Lib nicht ladbar" }
+        mark("Lib-Laden")
 
         val modelFile = ModelManager.selectedModelFile(context)
         check(modelFile.exists() && modelFile.length() > 0) { "Modell fehlt" }
+        runningModelId = ModelManager.selectedModel(context).id
 
-        phase = "Audio-Dekodierung"
+        enterPhase("Audio-Dekodierung")
         val samples = AudioDecoder.decodeToWhisperPcm(audioFile)
         check(samples.isNotEmpty()) { "Keine Audio-Samples" }
+        mark("Audio-Dekodierung")
 
         // audio_ctx-Optimierung: Encoder nur so groß rechnen wie das Audio wirklich ist
         // (1500 Tokens = 30s). +128 Sicherheitsmarge; 0 = whisper-Default (volles Fenster).
@@ -81,7 +110,14 @@ object LocalWhisperEngine {
         val audioCtx = if (lenSeconds >= 28.0) 0
             else (Math.ceil(lenSeconds / 30.0 * 1500.0).toInt() + 128).coerceIn(192, 1500)
 
-        phase = "Modell-Laden"
+        val threads = min(6, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
+        val modelAlreadyLoaded = ctxPtr != 0L && loadedModelPath == modelFile.absolutePath
+        Log.i(TAG, "Start: Modell=${modelFile.name} (${modelFile.length() / 1_000_000}MB), " +
+            "Audio=${"%.1f".format(lenSeconds)}s, audio_ctx=$audioCtx, threads=$threads, " +
+            "cpuCores=${Runtime.getRuntime().availableProcessors()}, modelSchonGeladen=$modelAlreadyLoaded, " +
+            "hatDotprod=${WhisperJni.hasDotprod()}")
+
+        enterPhase("Modell-Laden")
         synchronized(this) {
             if (ctxPtr == 0L || loadedModelPath != modelFile.absolutePath) {
                 if (ctxPtr != 0L) {
@@ -94,13 +130,12 @@ object LocalWhisperEngine {
                 loadedModelPath = modelFile.absolutePath
             }
         }
+        mark("Modell-Laden")
 
-        phase = "Inferenz"
-        val threads = min(6, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
-        val start = System.currentTimeMillis()
+        enterPhase("Inferenz")
         val text = WhisperJni.nativeTranscribe(ctxPtr, samples, language.trim(), threads, INITIAL_PROMPT, audioCtx)
             ?: throw IllegalStateException("Native Transkription fehlgeschlagen")
-        Log.i(TAG, "Lokale Transkription (${modelFile.name}, audio_ctx=$audioCtx): ${samples.size / AudioDecoder.WHISPER_SAMPLE_RATE}s Audio in ${System.currentTimeMillis() - start}ms")
+        mark("Inferenz")
         return text.trim()
     }
 
