@@ -54,8 +54,12 @@ internal object AudioDecoder {
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
+            // Stall-Schutz: eine ≤30s-Aufnahme dekodiert normal in <2s. Hängt der
+            // Codec, brechen wir hart ab — der Aufrufer fällt dann auf Cloud zurück.
+            val decodeDeadline = System.currentTimeMillis() + 30_000
 
             while (!outputDone) {
+                require(System.currentTimeMillis() < decodeDeadline) { "Decoder-Timeout" }
                 if (!inputDone) {
                     val inIndex = decoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
                     if (inIndex >= 0) {
