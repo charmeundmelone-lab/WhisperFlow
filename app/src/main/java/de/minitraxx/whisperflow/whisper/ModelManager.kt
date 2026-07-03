@@ -18,12 +18,16 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Verwaltet die Whisper-Modelle. Aktuell nur eine Stufe:
- *  - "Schnell" (small, q5_1, ~190 MB) — einzige Option fürs Handy
+ *  - "Schnell (small, q8_0, ~250 MB)" — einzige Option fürs Handy
+ *
+ * q8_0 statt q5_1 (Stand 2026-07-03): 8-bit statt 5-bit Quantisierung, näher am
+ * Original-Modell (weniger Rundungsfehler) bei kaum spürbarem Zeitverlust —
+ * reine Qualitätsverbesserung der Transkription, siehe CLAUDE.md.
  *
  * "large-v3-turbo" wurde nach Geräte-Tests entfernt: selbst mit Release-Build +
  * ARM-SIMD-Optimierung (siehe CLAUDE.md) blieb es für den Diktier-Anwendungsfall
  * unbrauchbar langsam. `cleanupOrphanedModels()` räumt eine evtl. schon
- * heruntergeladene turbo-Datei von Altinstallationen automatisch weg.
+ * heruntergeladene turbo- oder alte q5_1-Datei automatisch weg.
  *
  * Download nur über expliziten Button in den Einstellungen — nie automatisch.
  * Der Download läuft in einem eigenen Prozess-Scope weiter, solange die App lebt,
@@ -48,11 +52,11 @@ object ModelManager {
     val MODELS = listOf(
         ModelInfo(
             id = MODEL_SMALL,
-            fileName = "ggml-small-q5_1.bin",
-            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
-            minValidBytes = 150L * 1024 * 1024,
-            label = "Schnell (small)",
-            sizeLabel = "~190 MB"
+            fileName = "ggml-small-q8_0.bin",
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q8_0.bin",
+            minValidBytes = 200L * 1024 * 1024,
+            label = "Schnell (small, q8_0)",
+            sizeLabel = "~250 MB"
         )
     )
 
