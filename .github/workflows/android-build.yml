@@ -35,7 +35,16 @@ jobs:
             "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+        run: |
+          gradle assembleDebug --no-daemon -Pandroid.native.buildOutput=verbose --info > /tmp/build_full.log 2>&1 || (tail -c 8000 /tmp/build_full.log; exit 1)
+          echo "=== Native compiler invocations (whisper_jni / ggml) ==="
+          grep -E "clang\+\+|clang " /tmp/build_full.log | grep -E "whisper_jni|ggml-cpu-quants|quants\.c|ggml\.c|ggml-cpu\.c|whisper\.cpp" | head -8
+          echo "=== CMake configure summary ==="
+          grep -niE "CMAKE_BUILD_TYPE|Build type|The C compiler|The CXX compiler" /tmp/build_full.log | head -20
+          echo "=== FetchContent activity ==="
+          grep -niE "whisper_cpp|Populating|Downloading whisper" /tmp/build_full.log | head -20
+          echo "=== Native build task durations ==="
+          grep -E "Task :app:(configureCMake|buildCMake)" /tmp/build_full.log
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
