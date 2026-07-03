@@ -96,7 +96,7 @@ object LocalWhisperEngine {
         }
 
         phase = "Inferenz"
-        val threads = min(4, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
+        val threads = min(6, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
         val start = System.currentTimeMillis()
         val text = WhisperJni.nativeTranscribe(ctxPtr, samples, language.trim(), threads, INITIAL_PROMPT, audioCtx)
             ?: throw IllegalStateException("Native Transkription fehlgeschlagen")

@@ -233,8 +233,22 @@ Faktor 4–8x). Fix-Paket v1.2.1:
   TFLite-int8 + korrekte SIMD-Nutzung. Falls v1.2.1 immer noch zu langsam: Plan B = TFLite-
   Engine wie whisperIME statt whisper.cpp.
 
-**Noch offen (Option 1):** Geräte-Test v1.2.1 mit `small`+SIMD+audio_ctx (Erwartung: ⚡10s
-in ~2–5s, 30s in ~8–15s). Falls weiterhin zu langsam → Plan B (TFLite). GPU/Vulkan bewusst
+**Nachtrag 3 (2026-07-03):** v1.2.1-Test — "small" (181MB) brauchte 78,8s für 7s Audio
+(~11x realtime, quasi unverändert trotz SIMD-Fix) → SIMD war nicht die Hauptursache.
+**Root Cause gefunden: die App ist komplett Android-"debug"-BuildType** (bewusst wg.
+persistenter Signatur) — AGP haengt dafuer automatisch `-DCMAKE_BUILD_TYPE=Debug` an den
+CMake-Configure-Call, d.h. der gesamte native whisper.cpp/ggml-Code lief **ohne jede
+Compiler-Optimierung (-O0)**. SIMD-Intrinsics ohne Optimierungs-Pass bringen praktisch
+nichts. Fix-Paket v1.2.2:
+- `CMakeLists.txt`: `set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)` direkt nach
+  `project()` — überschreibt garantiert den von Gradle injizierten Debug-Wert
+- `build.gradle.kts`: zusätzlich `-DCMAKE_BUILD_TYPE=Release` als Argument + explizites
+  `-O3` in cFlags/cppFlags als Sicherheitsnetz (letztes `-O`-Flag gewinnt bei Clang immer)
+- Threads 4→6 (Snapdragon 7s Gen 3 hat 8 Kerne, vorher ungenutzt)
+
+**Noch offen (Option 1):** Geräte-Test v1.2.2 mit `small`+Release-Build+SIMD+audio_ctx
+(Erwartung: ⚡10s in ~1–3s, 30s in ~5–10s — Release-Build sollte den größten Einzelsprung
+bringen). Falls weiterhin zu langsam → Plan B (TFLite wie whisperIME). GPU/Vulkan bewusst
 nicht angefasst.
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett

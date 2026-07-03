@@ -13,8 +13,8 @@ android {
         applicationId = "de.minitraxx.whisperflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.2.1"
+        versionCode = 6
+        versionName = "1.2.2"
 
         // On-Device Whisper: nur arm64 (Zielgeraet Nothing Phone 3a).
         // Auf anderen ABIs fehlt die native Lib -> automatischer Cloud-Fallback.
@@ -34,10 +34,16 @@ android {
                     // Moderne ARM-SIMD-Kernels (fp16-Vektorarithmetik + Dot-Product) —
                     // ohne diese läuft ggml auf langsamen Skalar-Pfaden (Faktor 4-8x!).
                     // Nothing Phone 3a (Cortex-A720/A520, armv9) unterstützt beides.
-                    "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16"
+                    "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16",
+                    // AGP haengt fuer den "debug"-BuildType automatisch -O0 an
+                    // (siehe CMakeLists.txt). Hier zusaetzlich explizit gesetzt.
+                    "-DCMAKE_BUILD_TYPE=Release"
                 )
-                cFlags += "-march=armv8.2-a+dotprod+fp16"
-                cppFlags += listOf("-std=c++17", "-march=armv8.2-a+dotprod+fp16")
+                // -O3 als letztes Flag gewinnt in Clang immer gegen ein frueheres -O0 —
+                // Sicherheitsnetz, falls CMAKE_BUILD_TYPE aus irgendeinem Grund doch
+                // nicht durchschlaegt.
+                cFlags += listOf("-march=armv8.2-a+dotprod+fp16", "-O3")
+                cppFlags += listOf("-std=c++17", "-march=armv8.2-a+dotprod+fp16", "-O3")
             }
         }
     }

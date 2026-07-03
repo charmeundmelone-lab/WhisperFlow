@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.22)
 project(whisperflow_jni C CXX)
 
+# Die App wird ausschliesslich als Android-"debug"-Variante gebaut (persistente
+# Signatur, siehe CLAUDE.md). AGP haengt dafuer standardmaessig
+# -DCMAKE_BUILD_TYPE=Debug an (-O0!) — fuer whisper.cpp inakzeptabel langsam.
+# FORCE ueberschreibt den von Gradle gesetzten Wert unabhaengig von der Reihenfolge.
+set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+
 include(FetchContent)
 
 # whisper.cpp wird beim Configure aus dem offiziellen Repo geladen (gepinnter Release-Tag).
