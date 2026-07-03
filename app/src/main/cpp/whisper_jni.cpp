@@ -68,7 +68,11 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
     const char *prompt = (initial_prompt != nullptr)
         ? env->GetStringUTFChars(initial_prompt, nullptr) : nullptr;
 
-    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    // Beam-Search statt Greedy: deutlich genauere Transkription (weniger falsch
+    // erkannte Woerter), kostet ein Vielfaches an Rechenzeit gegenueber Greedy —
+    // bei aktueller Performance (small q8_0, Release-Build) noch klar im Budget.
+    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
+    params.beam_search.beam_size = 5;
     params.print_realtime   = false;
     params.print_progress   = false;
     params.print_timestamps = false;

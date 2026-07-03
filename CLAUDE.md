@@ -201,7 +201,7 @@ bleibt als Referenz für eine spätere Voll-Ausbaustufe stehen.
 - Gradle: `ndkVersion 27.2.12479018`, CMake 3.22.1, nur `arm64-v8a` (Nothing Phone 3a)
 - `whisper/WhisperJni.kt` — lazy `System.loadLibrary` in runCatching, nie beim App-Start
 - `whisper/AudioDecoder.kt` — M4A/AAC → 16kHz Mono Float-PCM (MediaCodec + Linear-Resampling); Aufnahme-Pipeline unverändert
-- `whisper/ModelManager.kt` — expliziter Download-Button (`ggml-small-q5_1.bin`, ~190MB, HuggingFace), Range-Resume, StateFlow-Progress; Modell unter `getExternalFilesDir("models")` (Stand nach Nachtrag 5: `large-v3-turbo` war ursprünglich zweite Option, wieder entfernt)
+- `whisper/ModelManager.kt` — expliziter Download-Button (`ggml-small-q8_0.bin`, ~250MB, HuggingFace), Range-Resume, StateFlow-Progress; Modell unter `getExternalFilesDir("models")` (Stand nach Nachtrag 6: `large-v3-turbo` und `q5_1` waren ursprünglich im Einsatz, beide wieder entfernt)
 - `whisper/LocalWhisperEngine.kt` — eigener Scope, busy-Gate, 150s-Timeout (Engine erholt sich selbst, Aufrufer geht zur Cloud)
 - `FloatingButtonService.smartTranscribe()` — Flag AN + Dauer ≤31,5s + Modell da → lokal; JEDER Fehler → stiller Cloud-Fallback; Kosten nur bei tatsächlichem Cloud-Aufruf (`CostTracker.recordAudio` von den Aufrufstellen hierher verschoben). Auch die Mini-Aufnahme im Bottom-Sheet nutzt den Pfad (und wird jetzt ebenfalls kostenerfasst)
 - Budget-Gate in `startRecording`: kostenlose lokale Aufnahmen (Preset ≤30s + Modell) starten auch bei aufgebrauchtem Guthaben
@@ -289,6 +289,23 @@ turbo-Datei aus der ersten Testinstallation automatisch von der Platte — kein 
 Aufräumen auf dem Gerät nötig. `selectedModel()` fällt für Altinstallationen mit
 `ondevice_model=turbo` in den Prefs automatisch auf `small` zurück (turbo ist schlicht nicht
 mehr in `MODELS`, kein Migrationscode nötig).
+
+**Nachtrag 6 (2026-07-03, v1.3.0): Qualitäts-Verbesserung der lokalen Transkription.** Geräte-Test
+mit v1.2.3 (turbo entfernt) bestätigt: `small` (q5_1) transkribiert 20s Audio in 9,1s (0€) —
+Performance-Problem gelöst. Nutzer bemängelte danach die Transkriptionsqualität und bat um
+eine möglichst exakte Verbesserung, ohne Modellgröße/Tempo zu opfern. Zwei Änderungen:
+- **Modell-Quantisierung `q5_1` → `q8_0`:** 8-bit statt 5-bit, näher am Original-Modell,
+  weniger Rundungsfehler. `ggml-small-q8_0.bin` (~250MB statt ~190MB), Dateiname in
+  `ModelManager.MODELS` geändert — alte q5_1-Datei wird von `cleanupOrphanedModels()`
+  automatisch als verwaist erkannt und gelöscht (kein Migrationscode nötig, gleiches Prinzip
+  wie beim turbo-Entfernen). Bestehende Nutzer müssen einmalig neu laden (~250MB).
+- **Decodierung Greedy → Beam-Search (`whisper_jni.cpp`):** `WHISPER_SAMPLING_BEAM_SEARCH` mit
+  `beam_size = 5` statt `WHISPER_SAMPLING_GREEDY` — spürbar genauere Transkription (Beam-Search
+  ist Whisper's Referenzmethode für hohe Genauigkeit), kostet mehr Rechenzeit als Greedy. Bei
+  9,1s für 20s Audio (Greedy) ist im 90s-Timeout-Budget viel Luft für den Mehraufwand.
+- **Noch offen:** Geräte-Test von v1.3.0 — insbesondere ob Beam-Search=5 bei einer vollen 30s-
+  Aufnahme (Preset-Maximum) noch klar unter dem 90s-Timeout bleibt. Falls es dort eng wird,
+  ist `beam_size` der erste Regler zum Zurückdrehen (z.B. auf 3).
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
