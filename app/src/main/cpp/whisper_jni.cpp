@@ -86,6 +86,9 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
     if (audio_ctx > 0 && audio_ctx <= 1500) {
         params.audio_ctx = audio_ctx;
     }
+    // Temperature-Fallback deaktivieren: bei schwachem Decode wiederholt whisper_full
+    // sonst bis zu 5x mit steigender Temperatur — auf dem Handy ein Vielfaches der Zeit.
+    params.temperature_inc = 0.0f;
 
     const int rc = whisper_full(ctx, params, pcm, n_samples);
 

@@ -26,7 +26,7 @@ object LocalWhisperEngine {
     private const val INITIAL_PROMPT = "Gesprochener Text, direkt transkribiert."
 
     /** Harte Obergrenze: kommt die Engine nicht zurück, übernimmt die Cloud. */
-    private const val TRANSCRIBE_TIMEOUT_MS = 150_000L
+    private const val TRANSCRIBE_TIMEOUT_MS = 90_000L
 
     // Eigener Scope: läuft die native Inferenz in einen Timeout, arbeitet sie im
     // Hintergrund zu Ende (nativer Code ist nicht abbrechbar) und gibt danach
@@ -39,6 +39,10 @@ object LocalWhisperEngine {
 
     @Volatile
     private var loadedModelPath: String? = null
+
+    /** Grobe Phasen-Markierung für aussagekräftige Timeout-Diagnosen. */
+    @Volatile
+    private var phase: String = "?"
 
     /**
      * Transkribiert [audioFile] (M4A) lokal. [language] wie beim Cloud-Aufruf:
@@ -57,24 +61,27 @@ object LocalWhisperEngine {
             }
         }
         return withTimeoutOrNull(TRANSCRIBE_TIMEOUT_MS) { deferred.await() }
-            ?: Result.failure(IllegalStateException("On-Device-Timeout"))
+            ?: Result.failure(IllegalStateException("On-Device-Timeout in Phase: $phase"))
     }
 
     private fun doTranscribe(context: Context, audioFile: File, language: String): String {
+        phase = "Lib-Laden"
         check(WhisperJni.ensureLoaded()) { "Native Lib nicht ladbar" }
 
         val modelFile = ModelManager.selectedModelFile(context)
         check(modelFile.exists() && modelFile.length() > 0) { "Modell fehlt" }
 
+        phase = "Audio-Dekodierung"
         val samples = AudioDecoder.decodeToWhisperPcm(audioFile)
         check(samples.isNotEmpty()) { "Keine Audio-Samples" }
 
         // audio_ctx-Optimierung: Encoder nur so groß rechnen wie das Audio wirklich ist
-        // (1500 Tokens = 30s). +64 Sicherheitsmarge; 0 = whisper-Default (volles Fenster).
+        // (1500 Tokens = 30s). +128 Sicherheitsmarge; 0 = whisper-Default (volles Fenster).
         val lenSeconds = samples.size.toDouble() / AudioDecoder.WHISPER_SAMPLE_RATE
-        val audioCtx = if (lenSeconds >= 29.0) 0
-            else (Math.ceil(lenSeconds / 30.0 * 1500.0).toInt() + 64).coerceIn(128, 1500)
+        val audioCtx = if (lenSeconds >= 28.0) 0
+            else (Math.ceil(lenSeconds / 30.0 * 1500.0).toInt() + 128).coerceIn(192, 1500)
 
+        phase = "Modell-Laden"
         synchronized(this) {
             if (ctxPtr == 0L || loadedModelPath != modelFile.absolutePath) {
                 if (ctxPtr != 0L) {
@@ -88,6 +95,7 @@ object LocalWhisperEngine {
             }
         }
 
+        phase = "Inferenz"
         val threads = min(4, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
         val start = System.currentTimeMillis()
         val text = WhisperJni.nativeTranscribe(ctxPtr, samples, language.trim(), threads, INITIAL_PROMPT, audioCtx)

@@ -13,8 +13,8 @@ android {
         applicationId = "de.minitraxx.whisperflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2"
+        versionCode = 5
+        versionName = "1.2.1"
 
         // On-Device Whisper: nur arm64 (Zielgeraet Nothing Phone 3a).
         // Auf anderen ABIs fehlt die native Lib -> automatischer Cloud-Fallback.
@@ -30,9 +30,14 @@ android {
                     "-DWHISPER_BUILD_EXAMPLES=OFF",
                     "-DWHISPER_BUILD_SERVER=OFF",
                     "-DGGML_OPENMP=OFF",
-                    "-DGGML_NATIVE=OFF"
+                    "-DGGML_NATIVE=OFF",
+                    // Moderne ARM-SIMD-Kernels (fp16-Vektorarithmetik + Dot-Product) —
+                    // ohne diese läuft ggml auf langsamen Skalar-Pfaden (Faktor 4-8x!).
+                    // Nothing Phone 3a (Cortex-A720/A520, armv9) unterstützt beides.
+                    "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16"
                 )
-                cppFlags += "-std=c++17"
+                cFlags += "-march=armv8.2-a+dotprod+fp16"
+                cppFlags += listOf("-std=c++17", "-march=armv8.2-a+dotprod+fp16")
             }
         }
     }

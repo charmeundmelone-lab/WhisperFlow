@@ -220,9 +220,22 @@ zwei Performance-Maßnahmen umgesetzt:
   (`ceil(len/30*1500)+64`, Kappe 1500, ab ≥29s Default) — Whisper rechnet sonst immer das
   volle 30s-Fenster durch. Größter Gewinn bei 10s-⚡-Aufnahmen (~3x).
 
-**Noch offen (Option 1):** Geräte-Test mit `small`+audio_ctx (Erwartung: ⚡10s in ~2–6s,
-30s in ~10–20s). Falls small-Qualität nicht reicht: `medium-q5_0` wäre die Zwischenstufe
-(aber kaum schneller als turbo — eher unattraktiv); GPU/Vulkan bewusst nicht angefasst.
+**Nachtrag 2 (2026-07-02, Abend):** Auch `small` lief in den 150s-Timeout → Ursache
+gefunden: Build ohne ARM-SIMD-Kernels (`GGML_NATIVE=OFF` ohne Arch-Angabe = Skalar-Pfade,
+Faktor 4–8x). Fix-Paket v1.2.1:
+- `-march=armv8.2-a+dotprod+fp16` (cFlags/cppFlags) + `-DGGML_CPU_ARM_ARCH=...` — Achtung:
+  läuft dadurch NUR auf armv8.2+-Geräten (Nothing Phone 3a = armv9, ok; ältere arm64 würden
+  mit SIGILL crashen — bewusster Trade-off, Single-Device-App)
+- `temperature_inc=0` (Temperature-Fallback kann Decode-Zeit vervielfachen)
+- Decoder-Stall-Guard (30s-Deadline in AudioDecoder)
+- Engine-Timeout 150s→90s, Timeout-Diagnose nennt jetzt die Phase (Lib/Decode/Modell/Inferenz)
+- Vergleichs-Referenz des Nutzers: whisperIME von OpenAPK läuft flott → deren Kern-Trick ist
+  TFLite-int8 + korrekte SIMD-Nutzung. Falls v1.2.1 immer noch zu langsam: Plan B = TFLite-
+  Engine wie whisperIME statt whisper.cpp.
+
+**Noch offen (Option 1):** Geräte-Test v1.2.1 mit `small`+SIMD+audio_ctx (Erwartung: ⚡10s
+in ~2–5s, 30s in ~8–15s). Falls weiterhin zu langsam → Plan B (TFLite). GPU/Vulkan bewusst
+nicht angefasst.
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
