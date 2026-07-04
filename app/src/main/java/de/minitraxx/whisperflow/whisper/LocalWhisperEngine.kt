@@ -2,6 +2,7 @@ package de.minitraxx.whisperflow.whisper
 
 import android.content.Context
 import android.util.Log
+import de.minitraxx.whisperflow.api.WhisperPrompts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,9 +22,6 @@ import kotlin.math.min
 object LocalWhisperEngine {
 
     private const val TAG = "LocalWhisperEngine"
-
-    /** Gleicher Kontext-Prompt wie beim Cloud-Whisper-Aufruf. */
-    private const val INITIAL_PROMPT = "Gesprochener Text, direkt transkribiert."
 
     /** Harte Obergrenze: kommt die Engine nicht zurück, übernimmt die Cloud. */
     private const val TRANSCRIBE_TIMEOUT_MS = 90_000L
@@ -104,16 +102,15 @@ object LocalWhisperEngine {
         check(samples.isNotEmpty()) { "Keine Audio-Samples" }
         mark("Audio-Dekodierung")
 
-        // audio_ctx-Optimierung: Encoder nur so groß rechnen wie das Audio wirklich ist
-        // (1500 Tokens = 30s). +128 Sicherheitsmarge; 0 = whisper-Default (volles Fenster).
+        // Kein audio_ctx-Beschnitt mehr: der Encoder rechnet immer das volle 30s-Fenster.
+        // War ein Speed-Hack aus der Debug-Build-Zeit und kostete Genauigkeit,
+        // besonders in den letzten Sekunden einer Aufnahme.
         val lenSeconds = samples.size.toDouble() / AudioDecoder.WHISPER_SAMPLE_RATE
-        val audioCtx = if (lenSeconds >= 28.0) 0
-            else (Math.ceil(lenSeconds / 30.0 * 1500.0).toInt() + 128).coerceIn(192, 1500)
 
         val threads = min(6, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
         val modelAlreadyLoaded = ctxPtr != 0L && loadedModelPath == modelFile.absolutePath
         Log.i(TAG, "Start: Modell=${modelFile.name} (${modelFile.length() / 1_000_000}MB), " +
-            "Audio=${"%.1f".format(lenSeconds)}s, audio_ctx=$audioCtx, threads=$threads, " +
+            "Audio=${"%.1f".format(lenSeconds)}s, threads=$threads, " +
             "cpuCores=${Runtime.getRuntime().availableProcessors()}, modelSchonGeladen=$modelAlreadyLoaded, " +
             "hatDotprod=${WhisperJni.hasDotprod()}")
 
@@ -133,8 +130,9 @@ object LocalWhisperEngine {
         mark("Modell-Laden")
 
         enterPhase("Inferenz")
-        val text = WhisperJni.nativeTranscribe(ctxPtr, samples, language.trim(), threads, INITIAL_PROMPT, audioCtx)
-            ?: throw IllegalStateException("Native Transkription fehlgeschlagen")
+        val text = WhisperJni.nativeTranscribe(
+            ctxPtr, samples, language.trim(), threads, WhisperPrompts.contextPrompt(language)
+        ) ?: throw IllegalStateException("Native Transkription fehlgeschlagen")
         mark("Inferenz")
         return text.trim()
     }

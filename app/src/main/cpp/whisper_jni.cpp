@@ -53,7 +53,7 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeInit(
 extern "C" JNIEXPORT jstring JNICALL
 Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
         JNIEnv *env, jobject /*thiz*/, jlong ctx_ptr, jfloatArray samples,
-        jstring language, jint n_threads, jstring initial_prompt, jint audio_ctx) {
+        jstring language, jint n_threads, jstring initial_prompt) {
     auto *ctx = reinterpret_cast<whisper_context *>(ctx_ptr);
     if (ctx == nullptr || samples == nullptr) return nullptr;
 
@@ -86,14 +86,11 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
     if (prompt != nullptr && prompt[0] != '\0') {
         params.initial_prompt = prompt;
     }
-    // Encoder-Kontext auf die tatsächliche Audiolänge begrenzen (0 = volles 30s-Fenster).
-    // Beschleunigt kurze Aufnahmen massiv, weil Whisper sonst immer 30s durchrechnet.
-    if (audio_ctx > 0 && audio_ctx <= 1500) {
-        params.audio_ctx = audio_ctx;
-    }
-    // Temperature-Fallback deaktivieren: bei schwachem Decode wiederholt whisper_full
-    // sonst bis zu 5x mit steigender Temperatur — auf dem Handy ein Vielfaches der Zeit.
-    params.temperature_inc = 0.0f;
+    // Bewusst KEIN audio_ctx-Beschnitt und KEIN temperature_inc=0 mehr (fruehere
+    // Speed-Hacks gegen die Debug-Build-Langsamkeit): der Default-Temperature-Fallback
+    // (0.2er-Schritte) ist Whispers Rettungsanker bei genuscheltem Alltags-Audio, und
+    // das volle 30s-Encoder-Fenster vermeidet Erkennungsfehler am Aufnahme-Ende.
+    // Mit Release-Build + SIMD (12s fuer 30s Audio) ist beides im 90s-Budget locker drin.
 
     const int rc = whisper_full(ctx, params, pcm, n_samples);
 
