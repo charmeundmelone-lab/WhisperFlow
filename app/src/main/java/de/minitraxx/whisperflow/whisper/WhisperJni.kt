@@ -27,8 +27,7 @@ internal object WhisperJni {
         samples: FloatArray,
         language: String,
         nThreads: Int,
-        initialPrompt: String,
-        audioCtx: Int
+        initialPrompt: String
     ): String?
 
     external fun nativeFree(ctxPtr: Long)

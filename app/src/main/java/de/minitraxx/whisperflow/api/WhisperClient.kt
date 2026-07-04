@@ -24,7 +24,7 @@ object WhisperClient {
                 .addFormDataPart("file", file.name, file.asRequestBody("audio/m4a".toMediaType()))
                 .addFormDataPart("model", "whisper-1")
                 .addFormDataPart("response_format", "text")
-                .addFormDataPart("prompt", "Gesprochener Text, direkt transkribiert.")
+                .addFormDataPart("prompt", WhisperPrompts.contextPrompt(language))
             if (language.isNotBlank()) builder.addFormDataPart("language", language)
             val body = builder.build()
 

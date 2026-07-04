@@ -188,11 +188,12 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper — Option 1 fertig & auf Gerät bestätigt (Stand 2026-07-03, v1.3.0)
+### 1. On-Device Whisper — Option 1 fertig; Alltagssprache-Tuning v1.3.1 wartet auf Geräte-Test (Stand 2026-07-04)
 
-**Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7" weiter unten in diesem
-Abschnitt — Performance UND Qualität sind vom Nutzer am echten Gerät bestätigt, es gibt aktuell
-KEIN offenes Problem bei Option 1.** Der Rest dieses Abschnitts (Umsetzungsstand + Nachtrag 1–6)
+**Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7" + „Nachtrag 8" weiter
+unten in diesem Abschnitt — Performance ist vom Nutzer am echten Gerät bestätigt (Nachtrag 7);
+die Alltagssprache-Verbesserungen aus Nachtrag 8 (v1.3.1) sind implementiert, aber noch NICHT
+auf dem Gerät getestet.** Der Rest dieses Abschnitts (Umsetzungsstand + Nachtrag 1–6)
 ist die chronologische Historie, wie es dorthin kam — nützlich als Kontext, aber nicht mehr
 handlungsleitend. Nur bei einem neu gemeldeten Problem hier wieder ansetzen.
 
@@ -328,6 +329,33 @@ Problem):
   Timeout) hängende Phase + Dotprod-Status — bei neuen Performance-Problemen zuerst dort
   nachsehen, bevor man wieder rät
 - versionCode/-Name: 7 / 1.3.0
+
+**Nachtrag 8 (2026-07-04, v1.3.1): Erkennungsqualität bei Alltagssprache — Speed-Hacks
+zurückgedreht + umgangssprachlicher Kontext-Prompt.** Nutzer-Feedback nach v1.3.0: Tempo
+und Grundqualität gut, aber die Erkennung von *Alltagssprache* (locker gesprochenes Deutsch,
+"halt"/"ne"/Verkürzungen) ist schwach. Drei Änderungen, alle klein und gezielt:
+- **Temperature-Fallback wieder aktiv (`whisper_jni.cpp`):** `temperature_inc = 0.0f` entfernt
+  — der whisper-Default (0.2er-Schritte) gilt wieder. Der Fallback ist Whispers eingebauter
+  Rettungsanker bei schwachem Decode (genau der Fall bei genuscheltem Alltags-Audio). War ein
+  Speed-Hack aus Nachtrag 2, als der Build noch unoptimiert (-O0) lief.
+- **`audio_ctx`-Beschnitt komplett entfernt:** Encoder rechnet immer das volle 30s-Fenster.
+  Der Beschnitt (Nachtrag 1) war ebenfalls ein Speed-Hack und kostete nachweislich Genauigkeit,
+  besonders am Aufnahme-Ende. Das gesamte Plumbing ist raus (JNI-Signatur von `nativeTranscribe`
+  ohne `audioCtx`-Parameter, Berechnung in `LocalWhisperEngine` gelöscht). Mit Release-Build +
+  SIMD (12s für 30s Audio) ist für beide Rücknahmen im 90s-Timeout-Budget reichlich Luft —
+  kurze ⚡-Aufnahmen werden dadurch wieder etwas langsamer (Encoder rechnet volles Fenster),
+  das ist der bewusste Preis für die Qualität.
+- **Kontext-Prompt auf Umgangssprache getrimmt (`api/WhisperPrompts.kt`, NEU):** Statt
+  `"Gesprochener Text, direkt transkribiert."` bekommt Whisper einen bewusst
+  umgangssprachlichen Beispieltext als Kontext (mit "halt", "ne", "sag's", "'ne", natürlicher
+  Interpunktion) — Whisper setzt den Stil des Prompts fort und *erwartet* dadurch
+  Alltagsvokabular, statt es zu "korrigieren". `WhisperPrompts.contextPrompt(language)` ist
+  die **einzige Quelle für beide Pfade** (Cloud `WhisperClient` + lokal `LocalWhisperEngine`,
+  vorher zwei hartcodierte Kopien); bei `language="en"` gibt es ein englisches Pendant, sonst
+  (de/auto/Plattdeutsch) den deutschen Prompt. Der Prompt wird nie mit ausgegeben.
+- versionCode/-Name: 8 / 1.3.1. **Geräte-Test durch den Nutzer steht noch aus** — erwartete
+  Beobachtung: spürbar bessere Alltagssprache-Erkennung, dafür etwas längere lokale
+  Transkriptionszeiten (unkritisch, Budget 90s).
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
