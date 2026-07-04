@@ -144,7 +144,7 @@ docs/
 | **Kurztippen** | Aufnahme an/aus (Toggle). Kein Walkie-Talkie-Modus mehr. |
 | **Langes Drücken (500ms)** | Öffnet Radialmenü (nur wenn nicht am Edge-Tab und nicht während Aufnahme). |
 | **Radialmenü** | 4 Punkte: Profil (WA/PRO/FOR), Emojis (🙂/🎉/—), Sprache (🌐/DE/EN), Labels (AN/AUS). Fächert zur Bildschirmmitte auf. Schließt nach 2,5s automatisch. |
-| **Aufnahme** | `MediaRecorder`, M4A/AAC, 128kbps, 44,1kHz. Pill-Animation beim Start/Stop (Breite ändert sich). Rechts-Edge: `params.x = sw - w` damit Pill von rechts wächst. |
+| **Aufnahme** | `MediaRecorder` mit `AudioSource.VOICE_RECOGNITION` (geräteeigene Rauschunterdrückung + AGC, seit v1.3.2), M4A/AAC, 128kbps, 44,1kHz. Pill-Animation beim Start/Stop (Breite ändert sich). Rechts-Edge: `params.x = sw - w` damit Pill von rechts wächst. |
 | **Status-Overlay** | Live-Timer + Wellenform während Aufnahme (rot), "Transkribiere...", "Korrigiere [Profil]...". Position: Innenseite des Buttons (links wenn rechts-edge, rechts wenn links-edge). |
 | **Duration Badge (unten)** | Unter dem Button: zeigt aktuelle Maximaldauer (30s/90s/3m/5m). Tippen zyklisch wechseln. |
 | **Mini-Badge ⚡ (oben)** | Über dem Button: aktiviert 10s-Schnellmodus. Leuchtet gelb wenn aktiv. |
@@ -188,11 +188,13 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper — Option 1 fertig; Alltagssprache-Tuning v1.3.1 wartet auf Geräte-Test (Stand 2026-07-04)
+### 1. On-Device Whisper — Option 1 fertig; Lärm-Robustheit v1.3.2 wartet auf Geräte-Test (Stand 2026-07-04)
 
-**Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7" + „Nachtrag 8" weiter
-unten in diesem Abschnitt — Performance ist vom Nutzer am echten Gerät bestätigt (Nachtrag 7);
-die Alltagssprache-Verbesserungen aus Nachtrag 8 (v1.3.1) sind implementiert, aber noch NICHT
+**Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7"–„Nachtrag 9" weiter
+unten in diesem Abschnitt — Performance ist vom Nutzer am echten Gerät bestätigt (Nachtrag 7),
+die Alltagssprache-Erkennung aus Nachtrag 8 (v1.3.1) ebenfalls (Geräte-Test 2026-07-04:
+Umgangssprache kommt korrekt durch). Offen ist die Robustheit bei Hintergrundlärm
+(Auto-Diktat): die Maßnahmen aus Nachtrag 9 (v1.3.2) sind implementiert, aber noch NICHT
 auf dem Gerät getestet.** Der Rest dieses Abschnitts (Umsetzungsstand + Nachtrag 1–6)
 ist die chronologische Historie, wie es dorthin kam — nützlich als Kontext, aber nicht mehr
 handlungsleitend. Nur bei einem neu gemeldeten Problem hier wieder ansetzen.
@@ -353,9 +355,29 @@ und Grundqualität gut, aber die Erkennung von *Alltagssprache* (locker gesproch
   die **einzige Quelle für beide Pfade** (Cloud `WhisperClient` + lokal `LocalWhisperEngine`,
   vorher zwei hartcodierte Kopien); bei `language="en"` gibt es ein englisches Pendant, sonst
   (de/auto/Plattdeutsch) den deutschen Prompt. Der Prompt wird nie mit ausgegeben.
-- versionCode/-Name: 8 / 1.3.1. **Geräte-Test durch den Nutzer steht noch aus** — erwartete
-  Beobachtung: spürbar bessere Alltagssprache-Erkennung, dafür etwas längere lokale
-  Transkriptionszeiten (unkritisch, Budget 90s).
+- versionCode/-Name: 8 / 1.3.1. **Geräte-Test 2026-07-04: bestätigt** — Umgangssprache
+  („mal gucken", „hinhaut", „mega angenervt") kommt korrekt durch, Tempo laut Nutzer in
+  Ordnung. Neues Problem dabei entdeckt → Nachtrag 9.
+
+**Nachtrag 9 (2026-07-04, v1.3.2): Robustheit bei Hintergrundlärm — Rauschunterdrückung
++ Claude-Verhörer-Reparatur.** Geräte-Test von v1.3.1 im fahrenden Auto (Stau, Baustellen):
+Alltagssprache-Erkennung gut, aber gegen Ende der Aufnahme sinnlose Verhörer („ich kann mir
+die Narben einfach nicht werden" statt „…die Namen einfach nicht merken") — Ursache ist
+Fahrgeräusch-Audio, nicht die Sprach-Stil-Erkennung. Zwei Änderungen (abgestimmte
+Optionen A + B):
+- **`AudioSource.VOICE_RECOGNITION` statt `MIC` (`FloatingButtonService`, beide
+  Aufnahmestellen: Hauptaufnahme + Mini-Aufnahme im Bottom-Sheet):** aktiviert Androids
+  geräteeigene Rauschunterdrückung + automatische Pegelanpassung, getunt für
+  Spracherkennung. Rohes `MIC` lieferte bei Straßenlärm massive Verhörer. Wirkt für BEIDE
+  Transkriptionspfade (lokal + Cloud), da die Aufnahme-Pipeline geteilt ist.
+- **Verhörer-Reparatur in allen drei StylePrompts:** Neuer Punkt in „Was du tust": Claude
+  darf ein Wort, das im Satzkontext offensichtlich keinen Sinn ergibt, durch das eindeutig
+  gemeinte, ähnlich klingende Wort ersetzen (Beispiel Narben/Namen im Prompt enthalten).
+  Bewusst eng formuliert („NUR bei eindeutigen Fällen; im Zweifel Original lassen; niemals
+  ganze Sätze neu erfinden") und als Wiederherstellung des tatsächlich Gesprochenen gerahmt,
+  damit es NICHT mit dem ABSOLUT-VERBOTEN-Umformulierungsverbot kollidiert.
+- versionCode/-Name: 9 / 1.3.2. **Geräte-Test durch den Nutzer steht noch aus** — idealer
+  Test: gleiche Situation wie beim Fund (Diktat im fahrenden Auto).
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
