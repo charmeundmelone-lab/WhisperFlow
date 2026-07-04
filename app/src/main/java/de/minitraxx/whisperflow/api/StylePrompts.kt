@@ -36,6 +36,7 @@ Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus
 Was du tust (NUR das):
 - Füllwörter entfernen: Hesitationslaute (äh, ähm, öhm, hm) immer entfernen. "Also" nur wenn bloße Satzeinleitung ohne Inhalt. "genau genau" / "ja genau" als reine Bestätigung entfernen. "ne" am Satzende als Bestätigungsfüllsel entfernen. "halt", "quasi", "sozusagen", "irgendwie" entfernen wenn bedeutungslos. BEHALTEN wenn inhaltlich: "Also dann machen wir...", "Genau dieser Punkt...", "Ja, das stimmt weil..."
 - Offensichtliche Versprecher und direkte Wort-Wiederholungen entfernen (z. B. "ich ich" → "ich")
+- Eindeutige Verhörer der Spracherkennung korrigieren: Der Text stammt aus automatischer Spracherkennung, oft mit Hintergrundgeräuschen aufgenommen. Ergibt ein Wort im Satzkontext offensichtlich keinen Sinn und ist klar erkennbar, welches ähnlich klingende Wort gemeint war, setze das gemeinte Wort ein (z. B. "ich kann mir die Narben einfach nicht werden" → "ich kann mir die Namen einfach nicht merken"). Das ist KEIN Umformulieren — es stellt wieder her, was tatsächlich gesprochen wurde. NUR bei eindeutigen Fällen; im Zweifel das Original unverändert lassen. Niemals ganze Sätze neu erfinden.
 - Grammatik und Zeichensetzung korrigieren — ohne dabei Sätze umzubauen
 - Absätze & Trenner: Wo ein Gedanke endet und ein neuer beginnt, setze einen Trenner — variiere instinktiv nach Rhythmus: manchmal schlichte Leerzeile, manchmal ein einzelnes '—' als eigene Zeile (wenn der Wechsel abrupt ist), manchmal '· · ·' (wenn eine Pause spürbar war). Der Text soll schön aussehen und wie von einem Menschen geschrieben wirken — nicht maschinell.${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
@@ -61,6 +62,7 @@ Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus
 Was du tust (NUR das):
 - Füllwörter entfernen: Hesitationslaute (äh, ähm, öhm, hm) immer entfernen. "Also" nur wenn bloße Satzeinleitung ohne Inhalt. "genau genau" / "ja genau" als reine Bestätigung entfernen. "ne" am Satzende als Bestätigungsfüllsel entfernen. "halt", "quasi", "sozusagen", "irgendwie" entfernen wenn bedeutungslos. BEHALTEN wenn inhaltlich: "Also dann machen wir...", "Genau dieser Punkt...", "Ja, das stimmt weil..."
 - Offensichtliche Versprecher und direkte Wort-Wiederholungen entfernen
+- Eindeutige Verhörer der Spracherkennung korrigieren: Der Text stammt aus automatischer Spracherkennung, oft mit Hintergrundgeräuschen aufgenommen. Ergibt ein Wort im Satzkontext offensichtlich keinen Sinn und ist klar erkennbar, welches ähnlich klingende Wort gemeint war, setze das gemeinte Wort ein (z. B. "ich kann mir die Narben einfach nicht werden" → "ich kann mir die Namen einfach nicht merken"). Das ist KEIN Umformulieren — es stellt wieder her, was tatsächlich gesprochen wurde. NUR bei eindeutigen Fällen; im Zweifel das Original unverändert lassen. Niemals ganze Sätze neu erfinden.
 - Grammatik und Zeichensetzung korrigieren — ohne dabei Sätze umzubauen
 - Absätze: Bei jedem Themenwechsel zuverlässig einen Absatz — hauptsächlich Leerzeile. Wo ein stärkerer Gedankenbruch spürbar ist, darf gelegentlich ein '—' als Trenner (eigene Zeile) stehen. Nicht mechanisch zählen — nach Rhythmus und Inhalt urteilen.${if (headingsLine.isNotEmpty()) "\n- $headingsLine" else ""}
 
@@ -85,6 +87,7 @@ Die Eingabe steht in <diktat>...</diktat> Tags. Gib NUR den bereinigten Text aus
 Was du tust (NUR das):
 - Füllwörter entfernen: Hesitationslaute (äh, ähm, öhm, hm) immer. "Also" nur als bedeutungslose Satzeinleitung. "genau genau" / "ja genau" als reine Bestätigung. "ne" am Satzende. Bedeutungslose Einschübe (halt, quasi, sozusagen) entfernen. BEHALTEN wenn inhaltlich relevant.
 - Versprecher und direkte Wort-Wiederholungen entfernen
+- Eindeutige Verhörer der Spracherkennung korrigieren: Der Text stammt aus automatischer Spracherkennung, oft mit Hintergrundgeräuschen aufgenommen. Ergibt ein Wort im Satzkontext offensichtlich keinen Sinn und ist klar erkennbar, welches ähnlich klingende Wort gemeint war, setze das gemeinte Wort ein. Das ist KEIN Umformulieren — es stellt wieder her, was tatsächlich gesprochen wurde. NUR bei eindeutigen Fällen; im Zweifel das Original unverändert lassen. Niemals ganze Sätze neu erfinden.
 - Grammatik und Zeichensetzung sehr präzise setzen
 - Abkürzungen ausschreiben (z.B. → zum Beispiel)
 - Einzelne umgangssprachliche Wörter durch formelle Entsprechungen ersetzen — ohne den Satz umzubauen

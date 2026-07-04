@@ -955,7 +955,10 @@ class FloatingButtonService : Service() {
         recordingStartTime = System.currentTimeMillis()
         runCatching {
             mediaRecorder = createMediaRecorder().apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
+                // VOICE_RECOGNITION statt MIC: aktiviert die geräteeigene Rauschunterdrückung
+                // + automatische Pegelanpassung, getunt für Spracherkennung — entscheidend
+                // bei Auto-/Straßenlärm. Rohes MIC lieferte dort massive Verhörer.
+                setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setAudioEncodingBitRate(128_000)
@@ -1772,7 +1775,8 @@ class FloatingButtonService : Service() {
         miniRecordingFile = File(cacheDir, "mini_rec_${System.currentTimeMillis()}.m4a")
         runCatching {
             miniMediaRecorder = createMediaRecorder().apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
+                // VOICE_RECOGNITION: gleiche Rauschunterdrückung wie bei der Hauptaufnahme.
+                setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setAudioEncodingBitRate(128_000)
