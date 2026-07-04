@@ -3,7 +3,9 @@
 ## Was diese App ist (aktueller Stand)
 
 **App-Name:** Laberboombox (Package bleibt `de.minitraxx.whisperflow`)
-**Letzter stabiler Build:** commit `57b4bcf` auf `main` — bestätigt funktionierend ✓
+**Letzter stabiler Build:** commit `afa6787` auf `main` (v1.3.0) — On-Device Whisper (Option 1)
+mit `small`/q8_0 + Beam-Search=5 auf echtem Gerät bestätigt (30s-Aufnahme → 12s lokal, 0€,
+Qualität vom Nutzer als "fantastisch" bezeichnet) ✓
 
 Die App ist ein **Floating-Button-Diktierwerkzeug**:
 
@@ -186,7 +188,13 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper — Option 1 umgesetzt (Stand 2026-07-02)
+### 1. On-Device Whisper — Option 1 fertig & auf Gerät bestätigt (Stand 2026-07-03, v1.3.0)
+
+**Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7" weiter unten in diesem
+Abschnitt — Performance UND Qualität sind vom Nutzer am echten Gerät bestätigt, es gibt aktuell
+KEIN offenes Problem bei Option 1.** Der Rest dieses Abschnitts (Umsetzungsstand + Nachtrag 1–6)
+ist die chronologische Historie, wie es dorthin kam — nützlich als Kontext, aber nicht mehr
+handlungsleitend. Nur bei einem neu gemeldeten Problem hier wieder ansetzen.
 
 **Umsetzungsstand 2026-07-02 — "Option 1: On-Device nur bis 30s" implementiert.**
 Der Nutzer hat sich (Kostenmotiv: 10s-⚡- und 30s-Aufnahmen sind das Gros) für eine
@@ -303,9 +311,23 @@ eine möglichst exakte Verbesserung, ohne Modellgröße/Tempo zu opfern. Zwei Ä
   `beam_size = 5` statt `WHISPER_SAMPLING_GREEDY` — spürbar genauere Transkription (Beam-Search
   ist Whisper's Referenzmethode für hohe Genauigkeit), kostet mehr Rechenzeit als Greedy. Bei
   9,1s für 20s Audio (Greedy) ist im 90s-Timeout-Budget viel Luft für den Mehraufwand.
-- **Noch offen:** Geräte-Test von v1.3.0 — insbesondere ob Beam-Search=5 bei einer vollen 30s-
-  Aufnahme (Preset-Maximum) noch klar unter dem 90s-Timeout bleibt. Falls es dort eng wird,
-  ist `beam_size` der erste Regler zum Zurückdrehen (z.B. auf 3).
+**Nachtrag 7 (2026-07-03, v1.3.0 — Geräte-Test bestätigt, On-Device Whisper Option 1 fertig):**
+Nutzer bestätigt: volle 30s-Preset-Aufnahme transkribiert lokal in **12s** (small, q8_0,
+Beam-Search=5) — klar unter dem 90s-Timeout, Qualität und Tempo laut Nutzer "fantastisch" /
+"viel, viel besser" / "annehmbar". Damit ist die On-Device-Whisper-Performance- und
+-Qualitätsarbeit für Option 1 **abgeschlossen**. Aktueller Endzustand, den eine neue Session
+als gegeben annehmen kann (nicht erneut in Frage stellen, außer der Nutzer meldet ein neues
+Problem):
+- Einziges Modell: `small`, Quantisierung `q8_0` (~250MB), Datei `ggml-small-q8_0.bin`
+- Decodierung: `WHISPER_SAMPLING_BEAM_SEARCH`, `beam_size = 5`
+- Build: `CMAKE_BUILD_TYPE=Release` (dreifach abgesichert: CMakeLists FORCE + Gradle-Argument +
+  explizites `-O3`), ARM-SIMD (`armv8.2-a+dotprod+fp16`), 6 Threads, Timeout 90s
+- Kein `large-v3-turbo` mehr, kein `q5_1` mehr — beide Varianten wurden nacheinander entfernt,
+  `ModelManager.cleanupOrphanedModels()` räumt Altdateien beim App-Start automatisch weg
+- Diagnose-Card in den Einstellungen zeigt bei jedem lokalen Versuch Modell + Dauer + (bei
+  Timeout) hängende Phase + Dotprod-Status — bei neuen Performance-Problemen zuerst dort
+  nachsehen, bevor man wieder rät
+- versionCode/-Name: 7 / 1.3.0
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
@@ -391,10 +413,10 @@ neu drücken, während der Transkription weiterreden"), kein Code wurde übernom
 Implementierung in Kotlin + whisper.cpp geplant, daher keine Lizenzpflicht. Whisper.cpp selbst
 (`ggml-org/whisper.cpp`) ist MIT-lizenziert und zur Einbindung gedacht.
 
-**Fortschritts-Checkliste (Stand 2026-07-02 — Option 1 abgedeckt, Chunk-Punkte nur für Voll-Ausbau relevant):**
+**Fortschritts-Checkliste (Stand 2026-07-03, v1.3.0 — Option 1 fertig & auf echtem Gerät bestätigt; Chunk-Punkte nur für Voll-Ausbau relevant):**
 - [x] NDK/CMake-Setup im CI-Workflow
 - [x] whisper.cpp als natives Modul eingebunden (JNI-Bridge)
-- [x] Modell-Download-Flow (expliziter Button, `large-v3-turbo` quantisiert)
+- [x] Modell-Download-Flow (expliziter Button, `small` q8_0 — turbo und q5_1 nach Tests wieder entfernt)
 - [ ] *(Voll-Ausbau)* Chunk-Buffer-Logik in `FloatingButtonService` (Session-State statt Zwischenablage)
 - [ ] *(Voll-Ausbau)* "Fertig"-Icon-Badge (UI + Tap-Handler)
 - [ ] *(Voll-Ausbau)* Mini-Badge ⚡ Verhalten angepasst (Einzelnotiz-Modus)
@@ -405,7 +427,9 @@ Implementierung in Kotlin + whisper.cpp geplant, daher keine Lizenzpflicht. Whis
 - [ ] *(Voll-Ausbau)* Füllwort-Entfernung/Punktuation/Absatztrenner auf Gesamtpuffer statt pro Chunk
 - [ ] *(Voll-Ausbau)* Auto-Minimize pausiert bei offener Session mit ungesendetem Puffer
 - [x] `CostTracker`: On-Device = 0€, nur finaler Claude-Call zählt
-- [ ] Test auf echtem Gerät (Nothing Phone 3a): Performance, Akku, Transkriptionsqualität
+- [x] Test auf echtem Gerät (Nothing Phone 3a): Performance bestätigt (30s-Aufnahme → 12s lokal,
+      Beam-Search=5 + q8_0), Qualität vom Nutzer als "fantastisch"/"viel besser" bestätigt.
+      Akku-Verbrauch nicht separat gemessen (kein gemeldetes Problem).
 
 **Prozess-Regeln für die Umsetzung dieses Features:**
 - **Tokenbudget im Blick behalten:** Vor Beginn größerer Arbeit kurz einschätzen, ob das
