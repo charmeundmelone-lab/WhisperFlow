@@ -13,8 +13,8 @@ android {
         applicationId = "de.minitraxx.whisperflow"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.3.2"
+        versionCode = 10
+        versionName = "1.3.3"
 
         // On-Device Whisper: nur arm64 (Zielgeraet Nothing Phone 3a).
         // Auf anderen ABIs fehlt die native Lib -> automatischer Cloud-Fallback.
