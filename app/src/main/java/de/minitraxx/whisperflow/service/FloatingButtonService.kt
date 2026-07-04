@@ -98,6 +98,10 @@ class FloatingButtonService : Service() {
     private var miniRecordingFile: File? = null
     private var miniRecordingStartTime = 0L
     private var miniMediaRecorder: MediaRecorder? = null
+    private var miniRecordingTargetIdx = -1
+    private var miniAutoStopRunnable: Runnable? = null
+    private val miniTimerHandler = Handler(Looper.getMainLooper())
+    private var miniTimerRunnable: Runnable? = null
     private var actionRow: LinearLayout? = null
     private val undoStack = ArrayDeque<Pair<Int, String>>() // index + text
     private var undoBtn: TextView? = null
@@ -1771,6 +1775,9 @@ class FloatingButtonService : Service() {
             ModelManager.isModelAvailable(this)
         if (openAiKey.isBlank() && !localAvailable) return
 
+        // Ziel-Satz jetzt festhalten (nicht erst beim Stoppen) — sonst landet die Korrektur
+        // am falschen Satz, falls während der Aufnahme versehentlich ein anderer angetippt wird.
+        miniRecordingTargetIdx = selectedSentenceIndex
         miniRecordingStartTime = System.currentTimeMillis()
         miniRecordingFile = File(cacheDir, "mini_rec_${System.currentTimeMillis()}.m4a")
         runCatching {
@@ -1786,14 +1793,30 @@ class FloatingButtonService : Service() {
                 start()
             }
             isMiniRecording = true
-            rerecordBtn.text = "⏹ Stoppen"
             rerecordBtn.setTextColor(Color.parseColor("#FF453A"))
+            startPulseRing()
+
+            val startedAt = miniRecordingStartTime
+            miniTimerRunnable = object : Runnable {
+                override fun run() {
+                    if (!isMiniRecording) return
+                    val s = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
+                    val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
+                               else "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+                    rerecordBtn.text = "⏹ $time"
+                    miniTimerHandler.postDelayed(this, 1000)
+                }
+            }
+            rerecordBtn.text = "⏹ 0:00"
+            miniTimerHandler.post(miniTimerRunnable!!)
         }
 
-        // Auto-stop after 30s
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (isMiniRecording) stopMiniRecording(rerecordBtn)
-        }, 30_000)
+        // Auto-stop after 30s — vorherigen Timer immer zuerst abbrechen, sonst kann ein
+        // liegengebliebener Timer der letzten Aufnahme eine spätere Aufnahme verfrüht stoppen.
+        miniAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+        val autoStop = Runnable { if (isMiniRecording) stopMiniRecording(rerecordBtn) }
+        miniAutoStopRunnable = autoStop
+        miniTimerHandler.postDelayed(autoStop, 30_000)
     }
 
     private fun stopMiniRecording(rerecordBtn: TextView) {
@@ -1801,6 +1824,11 @@ class FloatingButtonService : Service() {
         isMiniRecording = false
         rerecordBtn.text = "🎤 Neu sprechen"
         rerecordBtn.setTextColor(Color.WHITE)
+        stopPulseRing()
+        miniAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+        miniAutoStopRunnable = null
+        miniTimerRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+        miniTimerRunnable = null
 
         runCatching { miniMediaRecorder?.stop() }
         runCatching { miniMediaRecorder?.release() }
@@ -1813,7 +1841,7 @@ class FloatingButtonService : Service() {
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
         val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
         val whisperLanguage = if (language == "platt") "de" else language
-        val capturedIdx = selectedSentenceIndex
+        val capturedIdx = miniRecordingTargetIdx
         val miniDurationMs = (System.currentTimeMillis() - miniRecordingStartTime).coerceAtLeast(0)
 
         serviceScope.launch {
@@ -1837,6 +1865,11 @@ class FloatingButtonService : Service() {
             runCatching { miniMediaRecorder?.release() }
             miniMediaRecorder = null
             isMiniRecording = false
+            stopPulseRing()
+            miniAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+            miniAutoStopRunnable = null
+            miniTimerRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+            miniTimerRunnable = null
             miniRecordingFile?.delete()
             miniRecordingFile = null
         }
