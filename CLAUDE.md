@@ -158,7 +158,7 @@ docs/
 | **Text-Injection (WhatsApp)** | `findBottomMostEditable()` findet Compose-Feld zuverlässig auch wenn FOCUS_INPUT verloren. `ACTION_SET_TEXT` mit nur `text` → kein "Nachricht"-Prefix. |
 | **Text-Injection Fallback** | Clipboard + `ACTION_PASTE` wenn `ACTION_SET_TEXT` false zurückgibt. |
 | **Überschriften-Toggle (Labels)** | Im Radialmenü (AN/AUS). Steuert `headingsEnabled`. WA: originelle, witzige Kurztitel. Professionell: knapp & präzise. Formal: sachlich ("Sachverhalt:", "Bitte:"). Fließtext bleibt IMMER Fließtext. |
-| **Emoji-Modi** | `none`: 0 Emojis. `few`: 1–2 nach eigenem Ermessen (nicht erzwingen). `many`: 5–8, variiert platziert. Toggle-Badge schaltet nur `none`↔`few`. Radialmenü erlaubt auch `many`. |
+| **Emoji-Modi** | `none`: 0 Emojis. `few`: 1–2, explizit mitten im Satz/am Gedankenende, NIEMALS Satz-/Absatzanfang. `many`: 5–8, variiert platziert (weder immer Satzanfang noch immer Absatzende). Toggle-Badge schaltet nur `none`↔`few`. Radialmenü erlaubt auch `many`. |
 | **Füllwort-Entfernung** | "ähm", "äh", "hm", "ehm" aus Transkript entfernen (vor Claude-Korrektur). |
 | **Punktuation** | "Punkt", "Komma", "Ausrufezeichen", "Absatz" etc. → Satzzeichen/Newlines. |
 | **API-Keys** | In SharedPreferences, niemals in BuildConfig. Mit `.trim()` lesen/schreiben. |
@@ -174,6 +174,7 @@ docs/
 | **Bottom-Sheet-Editor** | Vorschau-Overlay mit Satz-Tap-Auswahl, Löschen, Undo, Kopieren, Swipe-up-zum-Einfügen, Swipe-down-zum-Verwerfen, Mini-Aufnahme zum Anhängen. |
 | **Kreative Absatztrenner** | WA/Professionell: variabel nach Rhythmus (Leerzeile / — / · · ·). Formal: immer Leerzeile. Konfiguriert in `StylePrompts.kt`. |
 | **Plattdeutsch-Modus** | Radialmenü Sprache: PLT → whisper_language="de" + Claude-Prompt bewahrt Dialektwörter exakt. |
+| **Verhörer-Reparatur** | Claude korrigiert eindeutige Spracherkennungs-Verhörer (Wort oder ganzer Satz ergibt im Kontext keinen Sinn) mit minimal nötigem Eingriff — niemals neue Inhalte erfinden, im Zweifel Original lassen. In allen drei StylePrompts. |
 
 ---
 
@@ -188,16 +189,17 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper — Option 1 fertig; Lärm-Robustheit v1.3.2 wartet auf Geräte-Test (Stand 2026-07-04)
+### 1. On-Device Whisper — Option 1 fertig; Feinschliff v1.3.3 wartet auf Geräte-Test (Stand 2026-07-04)
 
-**Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7"–„Nachtrag 9" weiter
-unten in diesem Abschnitt — Performance ist vom Nutzer am echten Gerät bestätigt (Nachtrag 7),
-die Alltagssprache-Erkennung aus Nachtrag 8 (v1.3.1) ebenfalls (Geräte-Test 2026-07-04:
-Umgangssprache kommt korrekt durch). Offen ist die Robustheit bei Hintergrundlärm
-(Auto-Diktat): die Maßnahmen aus Nachtrag 9 (v1.3.2) sind implementiert, aber noch NICHT
-auf dem Gerät getestet.** Der Rest dieses Abschnitts (Umsetzungsstand + Nachtrag 1–6)
-ist die chronologische Historie, wie es dorthin kam — nützlich als Kontext, aber nicht mehr
-handlungsleitend. Nur bei einem neu gemeldeten Problem hier wieder ansetzen.
+**Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7"–„Nachtrag 10" weiter
+unten in diesem Abschnitt — Performance (Nachtrag 7), Alltagssprache-Erkennung (Nachtrag 8)
+und Lärm-Robustheit (Nachtrag 9, v1.3.2) sind vom Nutzer am echten Gerät bestätigt
+("richtig toll geworden"). Zwei kleine Nachbesserungen aus Nachtrag 10 (v1.3.3) —
+Verhörer-Reparatur auf Satzebene erweitert, Emoji-Platzierung im few-Modus korrigiert —
+sind implementiert, aber noch NICHT auf dem Gerät getestet.** Der Rest dieses Abschnitts
+(Umsetzungsstand + Nachtrag 1–6) ist die chronologische Historie, wie es dorthin kam —
+nützlich als Kontext, aber nicht mehr handlungsleitend. Nur bei einem neu gemeldeten
+Problem hier wieder ansetzen.
 
 **Umsetzungsstand 2026-07-02 — "Option 1: On-Device nur bis 30s" implementiert.**
 Der Nutzer hat sich (Kostenmotiv: 10s-⚡- und 30s-Aufnahmen sind das Gros) für eine
@@ -376,8 +378,29 @@ Optionen A + B):
   Bewusst eng formuliert („NUR bei eindeutigen Fällen; im Zweifel Original lassen; niemals
   ganze Sätze neu erfinden") und als Wiederherstellung des tatsächlich Gesprochenen gerahmt,
   damit es NICHT mit dem ABSOLUT-VERBOTEN-Umformulierungsverbot kollidiert.
-- versionCode/-Name: 9 / 1.3.2. **Geräte-Test durch den Nutzer steht noch aus** — idealer
-  Test: gleiche Situation wie beim Fund (Diktat im fahrenden Auto).
+- versionCode/-Name: 9 / 1.3.2. **Geräte-Test bestätigt** — Nutzer-Feedback: „richtig toll
+  geworden". Dabei zwei neue, kleine Wünsche gemeldet → Nachtrag 10.
+
+**Nachtrag 10 (2026-07-04, v1.3.3): Verhörer-Reparatur auf ganze Sätze erweitert +
+Emoji-Platzierung wieder variiert statt linksbündig.** Nutzer-Feedback nach v1.3.2-Test:
+Grundsätzlich sehr zufrieden, zwei Nachbesserungen gewünscht:
+- **Verhörer-Reparatur (`StylePrompts.kt`, alle drei Profile):** Bisher durfte Claude nur
+  ein einzelnes Wort korrigieren, wenn es im Kontext keinen Sinn ergab. Jetzt ausdrücklich
+  auch auf einen ganzen Satz erweiterbar, falls der gesamte Satz unsinnig ist — aber
+  weiterhin mit dem Prinzip des absolut minimal nötigen Eingriffs: nur die Wörter ersetzen,
+  die den Unsinn verursachen, niemals neue Inhalte erfinden, die nicht aus dem Kontext
+  hervorgehen. Der Zusatz „Erfinde dabei niemals neue Inhalte oder Aussagen, die nicht aus
+  dem Kontext hervorgehen" verhindert, dass diese Lockerung zur Vollumformulierung
+  ausgenutzt wird — das ABSOLUT-VERBOTEN-Umformulierungsverbot bleibt in der Substanz
+  unangetastet, nur der Radius der Verhörer-Ausnahme wächst von Wort- auf Satzebene.
+- **Emoji-Positionierung im `few`-Modus (Standard) korrigiert:** Der `few`-Prompt enthielt
+  bisher — anders als der `many`-Prompt — keinerlei Vorgabe zur Position, wodurch Claude
+  Haiku dazu tendierte, Emojis an den Satz-/Absatzanfang zu setzen (Nutzer: „linksbündig").
+  Neuer Wortlaut verlangt explizit Platzierung mitten im Satz hinter dem stimmungstragenden
+  Wort oder am Ende eines Gedankens, und verbietet ausdrücklich die Position am Satz-/
+  Absatzanfang. `many`-Prompt zusätzlich präzisiert („weder immer Satzanfang noch immer
+  Absatzende" statt nur "nicht immer Absatzende") als Sicherheitsnetz für dieselbe Tendenz.
+- versionCode/-Name: 10 / 1.3.3. **Geräte-Test durch den Nutzer steht noch aus.**
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
