@@ -1856,6 +1856,10 @@ class FloatingButtonService : Service() {
                     }
                 }
             }
+            // smartTranscribe blendet bei On-Device-Whisper "Transkribiere (lokal)..." im
+            // Status-Overlay ein — das bleibt sonst dauerhaft stehen, weil dieser Pfad (anders
+            // als processAudio) nie hideStatus() aufruft.
+            withContext(Dispatchers.Main) { hideStatus() }
         }
     }
 
