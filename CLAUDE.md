@@ -3,9 +3,10 @@
 ## Was diese App ist (aktueller Stand)
 
 **App-Name:** Laberboombox (Package bleibt `de.minitraxx.whisperflow`)
-**Letzter stabiler Build:** commit `afa6787` auf `main` (v1.3.0) — On-Device Whisper (Option 1)
-mit `small`/q8_0 + Beam-Search=5 auf echtem Gerät bestätigt (30s-Aufnahme → 12s lokal, 0€,
-Qualität vom Nutzer als "fantastisch" bezeichnet) ✓
+**Letzter stabiler Build:** commit `24a53bc` auf `main` (v1.3.3) — On-Device Whisper (Option 1)
+komplett fertig UND auf echtem Gerät bestätigt: Performance (30s-Aufnahme → 12s lokal, 0€),
+Alltagssprache-Erkennung, Lärm-Robustheit (Auto-Diktat) und die Satzebene-Verhörer-Reparatur
++ Emoji-Platzierung aus v1.3.3 laufen laut Nutzer "absolut fantastisch" ✓
 
 Die App ist ein **Floating-Button-Diktierwerkzeug**:
 
@@ -189,17 +190,16 @@ lang drücken → Einfügen. Dies ist eine harte Android-Grenze, kein App-Bug.
 
 ## Offene Todos (priorisiert)
 
-### 1. On-Device Whisper — Option 1 fertig; Feinschliff v1.3.3 wartet auf Geräte-Test (Stand 2026-07-04)
+### 1. On-Device Whisper — Option 1 komplett fertig & auf Gerät bestätigt (Stand 2026-07-04, v1.3.3)
 
 **Für eine neue Session: der aktuelle Endzustand steht in „Nachtrag 7"–„Nachtrag 10" weiter
-unten in diesem Abschnitt — Performance (Nachtrag 7), Alltagssprache-Erkennung (Nachtrag 8)
-und Lärm-Robustheit (Nachtrag 9, v1.3.2) sind vom Nutzer am echten Gerät bestätigt
-("richtig toll geworden"). Zwei kleine Nachbesserungen aus Nachtrag 10 (v1.3.3) —
-Verhörer-Reparatur auf Satzebene erweitert, Emoji-Platzierung im few-Modus korrigiert —
-sind implementiert, aber noch NICHT auf dem Gerät getestet.** Der Rest dieses Abschnitts
-(Umsetzungsstand + Nachtrag 1–6) ist die chronologische Historie, wie es dorthin kam —
-nützlich als Kontext, aber nicht mehr handlungsleitend. Nur bei einem neu gemeldeten
-Problem hier wieder ansetzen.
+unten in diesem Abschnitt — Performance (Nachtrag 7), Alltagssprache-Erkennung (Nachtrag 8),
+Lärm-Robustheit (Nachtrag 9) UND die Satzebene-Verhörer-Reparatur + Emoji-Platzierung
+(Nachtrag 10, v1.3.3) sind alle vom Nutzer am echten Gerät bestätigt — Feedback wörtlich:
+"Das funktioniert absolut fantastisch." Es gibt aktuell KEIN offenes Problem bei Option 1.**
+Der Rest dieses Abschnitts (Umsetzungsstand + Nachtrag 1–6) ist die chronologische Historie,
+wie es dorthin kam — nützlich als Kontext, aber nicht mehr handlungsleitend. Nur bei einem
+neu gemeldeten Problem hier wieder ansetzen.
 
 **Umsetzungsstand 2026-07-02 — "Option 1: On-Device nur bis 30s" implementiert.**
 Der Nutzer hat sich (Kostenmotiv: 10s-⚡- und 30s-Aufnahmen sind das Gros) für eine
@@ -400,7 +400,9 @@ Grundsätzlich sehr zufrieden, zwei Nachbesserungen gewünscht:
   Wort oder am Ende eines Gedankens, und verbietet ausdrücklich die Position am Satz-/
   Absatzanfang. `many`-Prompt zusätzlich präzisiert („weder immer Satzanfang noch immer
   Absatzende" statt nur "nicht immer Absatzende") als Sicherheitsnetz für dieselbe Tendenz.
-- versionCode/-Name: 10 / 1.3.3. **Geräte-Test durch den Nutzer steht noch aus.**
+- versionCode/-Name: 10 / 1.3.3. **Geräte-Test bestätigt** — Nutzer-Feedback: „Das
+  funktioniert absolut fantastisch." Beide Nachbesserungen (Satzebene-Verhörer-Reparatur,
+  Emoji-Platzierung) wirken wie gewünscht. Kein offenes Problem bei Option 1.
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
@@ -486,7 +488,7 @@ neu drücken, während der Transkription weiterreden"), kein Code wurde übernom
 Implementierung in Kotlin + whisper.cpp geplant, daher keine Lizenzpflicht. Whisper.cpp selbst
 (`ggml-org/whisper.cpp`) ist MIT-lizenziert und zur Einbindung gedacht.
 
-**Fortschritts-Checkliste (Stand 2026-07-03, v1.3.0 — Option 1 fertig & auf echtem Gerät bestätigt; Chunk-Punkte nur für Voll-Ausbau relevant):**
+**Fortschritts-Checkliste (Stand 2026-07-04, v1.3.3 — Option 1 komplett fertig & auf echtem Gerät bestätigt; Chunk-Punkte nur für Voll-Ausbau relevant):**
 - [x] NDK/CMake-Setup im CI-Workflow
 - [x] whisper.cpp als natives Modul eingebunden (JNI-Bridge)
 - [x] Modell-Download-Flow (expliziter Button, `small` q8_0 — turbo und q5_1 nach Tests wieder entfernt)
