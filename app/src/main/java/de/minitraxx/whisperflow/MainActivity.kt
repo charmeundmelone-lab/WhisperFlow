@@ -369,7 +369,7 @@ fun ApiKeyCard(
 
 @Composable
 fun ProfileCard(currentProfile: String, onProfileChange: (String) -> Unit) {
-    val profiles = listOf("whatsapp" to "WhatsApp", "professional" to "Professionell", "formal" to "Formal")
+    val profiles = listOf("whatsapp" to "WhatsApp", "professional" to "Professionell", "formal" to "Formal", "emoji" to "😀 Emoji")
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
