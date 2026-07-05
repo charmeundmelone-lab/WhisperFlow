@@ -195,6 +195,7 @@ class FloatingButtonService : Service() {
         const val PROFILE_WHATSAPP = "whatsapp"
         const val PROFILE_PROFESSIONAL = "professional"
         const val PROFILE_FORMAL = "formal"
+        const val PROFILE_EMOJI = "emoji"
         const val EMOJI_NONE = "none"
         const val EMOJI_FEW = "few"
         const val EMOJI_MANY = "many"
@@ -746,9 +747,10 @@ class FloatingButtonService : Service() {
             when (index) {
                 0 -> {
                     val next = when (prefs.getString(KEY_STYLE_PROFILE, PROFILE_WHATSAPP) ?: PROFILE_WHATSAPP) {
-                        PROFILE_WHATSAPP    -> PROFILE_PROFESSIONAL
+                        PROFILE_WHATSAPP     -> PROFILE_PROFESSIONAL
                         PROFILE_PROFESSIONAL -> PROFILE_FORMAL
-                        else                -> PROFILE_WHATSAPP
+                        PROFILE_FORMAL       -> PROFILE_EMOJI
+                        else                 -> PROFILE_WHATSAPP
                     }
                     prefs.edit().putString(KEY_STYLE_PROFILE, next).apply()
                     menuValueViews.getOrNull(0)?.text = profileDisplayValue(next)
@@ -809,6 +811,7 @@ class FloatingButtonService : Service() {
     private fun profileDisplayValue(profile: String) = when (profile) {
         PROFILE_PROFESSIONAL -> "PRO"
         PROFILE_FORMAL       -> "FOR"
+        PROFILE_EMOJI        -> "😀"
         else                 -> "WA"
     }
 
@@ -1396,6 +1399,9 @@ class FloatingButtonService : Service() {
 
         val activePackage = capturedPackage
         val effectiveProfile = when {
+            // Bewusst gewählter Emoji-Modus ist eine explizite kreative Entscheidung und
+            // wird — anders als die automatische App-Erkennung — nie stillschweigend überschrieben.
+            profile == PROFILE_EMOJI -> PROFILE_EMOJI
             activePackage.contains("whatsapp") -> PROFILE_WHATSAPP
             activePackage in setOf(
                 "com.google.android.gm",
@@ -1416,6 +1422,7 @@ class FloatingButtonService : Service() {
             val profileLabel = when (effectiveProfile) {
                 PROFILE_PROFESSIONAL -> "Professionell"
                 PROFILE_FORMAL       -> "Formal"
+                PROFILE_EMOJI        -> "Emoji"
                 else                 -> "WhatsApp"
             }
             showStatus("Korrigiere [$profileLabel]...", Color.parseColor("#8E8E93"))
@@ -2057,6 +2064,7 @@ class FloatingButtonService : Service() {
                     val profileLabel = when (previewEffectiveProfile) {
                         PROFILE_PROFESSIONAL -> "Professionell"
                         PROFILE_FORMAL       -> "Formal"
+                        PROFILE_EMOJI        -> "Emoji"
                         else                 -> "WhatsApp"
                     }
                     withContext(Dispatchers.Main) {
