@@ -24,7 +24,10 @@ import android.os.Looper
 import android.view.*
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -91,9 +94,13 @@ class FloatingButtonService : Service() {
 
     private var previewView: View? = null
     private var previewBottomSheet: View? = null
+    private var previewSheetParams: WindowManager.LayoutParams? = null
     private var previewSentences = mutableListOf<String>()
     private var selectedSentenceIndex = -1
     private var sentenceViews = mutableListOf<TextView>()
+    private var editingSentenceIndex = -1
+    private var editingEditText: EditText? = null
+    private var editingEditBtn: TextView? = null
     private var isMiniRecording = false
     private var miniRecordingFile: File? = null
     private var miniRecordingStartTime = 0L
@@ -1546,6 +1553,19 @@ class FloatingButtonService : Service() {
             }
             setOnClickListener { deleteSelectedSentence() }
         }
+        val editBtn = TextView(this).apply {
+            text = "✏️ Bearbeiten"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * dp
+                setColor(Color.parseColor("#2C2C2E"))
+                setStroke((1 * dp).toInt(), Color.parseColor("#48484A"))
+            }
+            setOnClickListener { toggleWordEdit(this) }
+        }
         val rerecordBtn = TextView(this).apply {
             text = "🎤 Neu sprechen"
             textSize = 14f
@@ -1563,6 +1583,7 @@ class FloatingButtonService : Service() {
             layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
         }
         aRow.addView(deleteBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
+        aRow.addView(editBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
         aRow.addView(rerecordBtn)
         aRow.addView(spacer)
         root.addView(aRow)
@@ -1603,6 +1624,7 @@ class FloatingButtonService : Service() {
                 setColor(Color.parseColor("#2C2C2E"))
             }
             setOnClickListener {
+                finishWordEdit()
                 val textToCopy = previewSentences.joinToString(" ")
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("whisperflow", textToCopy))
@@ -1641,6 +1663,7 @@ class FloatingButtonService : Service() {
                     val dy = touchDownY - event.rawY
                     if (dy > 80 * dp) {
                         // Swipe up → insert
+                        finishWordEdit()
                         val finalText = previewSentences.joinToString(" ")
                         hidePreviewOverlay()
                         WhisperAccessibilityService.inject(finalText)
@@ -1666,6 +1689,7 @@ class FloatingButtonService : Service() {
 
         previewBottomSheet = root
         previewView = root
+        previewSheetParams = pp
         windowManager.addView(root, pp)
 
         // Slide-in animation
@@ -1678,6 +1702,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun selectSentence(idx: Int) {
+        finishWordEdit()
         val dp = resources.displayMetrics.density
         // Deselect previous
         if (selectedSentenceIndex >= 0) {
@@ -1710,6 +1735,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun deleteSelectedSentence() {
+        finishWordEdit()
         val idx = selectedSentenceIndex
         if (idx < 0 || idx >= previewSentences.size) return
         undoStack.addLast(Pair(idx, previewSentences[idx]))
@@ -1764,11 +1790,128 @@ class FloatingButtonService : Service() {
         updateUndoButton()
     }
 
+    // ── Wort-Editor: Satz per System-Tastatur statt per Sprache korrigieren ──────
+
+    private fun toggleWordEdit(editBtn: TextView) {
+        if (editingSentenceIndex >= 0) {
+            commitWordEdit()
+        } else {
+            startWordEdit(editBtn)
+        }
+    }
+
+    private fun startWordEdit(editBtn: TextView) {
+        if (isMiniRecording) return
+        val idx = selectedSentenceIndex
+        val tv = sentenceViews.getOrNull(idx) ?: return
+        val container = tv.parent as? LinearLayout ?: return
+        val dp = resources.displayMetrics.density
+
+        val et = EditText(this).apply {
+            setText(previewSentences.getOrNull(idx) ?: tv.text)
+            setSelection(text.length)
+            textSize = 16f
+            setTextColor(Color.parseColor("#FFD60A"))
+            setHintTextColor(Color.parseColor("#8E8E93"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setLineSpacing(3 * dp, 1f)
+            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setSingleLine(false)
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) { commitWordEdit(); true } else false
+            }
+        }
+        val pos = container.indexOfChild(tv)
+        container.removeViewAt(pos)
+        container.addView(et, pos, tv.layoutParams)
+        sentenceViews[idx] = et
+
+        editingSentenceIndex = idx
+        editingEditText = et
+        editingEditBtn = editBtn
+        editBtn.text = "✓ Fertig"
+        editBtn.setTextColor(Color.parseColor("#32D74B"))
+
+        // Fenster muss kurzzeitig fokussierbar werden, sonst bekommt das EditText nie den
+        // Fokus und die Tastatur bleibt unten — Overlay-Fenster sind sonst bewusst
+        // FLAG_NOT_FOCUSABLE, damit sie der Vordergrund-App nie den Fokus wegnehmen.
+        val sheet = previewBottomSheet
+        val p = previewSheetParams
+        if (sheet != null && p != null) {
+            p.flags = p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+            runCatching { windowManager.updateViewLayout(sheet, p) }
+        }
+        et.requestFocus()
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+            .showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun commitWordEdit() {
+        val idx = editingSentenceIndex
+        val et = editingEditText
+        val editBtn = editingEditBtn
+        if (idx < 0 || et == null) return
+
+        val newText = et.text.toString()
+        if (idx < previewSentences.size) previewSentences[idx] = newText
+
+        val dp = resources.displayMetrics.density
+        val isSelected = selectedSentenceIndex == idx
+        val tv = TextView(this).apply {
+            text = newText
+            textSize = 16f
+            setTextColor(if (isSelected) Color.parseColor("#FFD60A") else Color.WHITE)
+            setLineSpacing(3 * dp, 1f)
+            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10 * dp
+                if (isSelected) {
+                    setColor(Color.parseColor("#33FFD60A"))
+                    setStroke((1 * dp).toInt(), Color.parseColor("#FFD60A"))
+                } else {
+                    setColor(Color.TRANSPARENT)
+                }
+            }
+            setOnClickListener { selectSentence(idx) }
+        }
+        val container = et.parent as? LinearLayout
+        val pos = container?.indexOfChild(et) ?: -1
+        if (container != null && pos >= 0) {
+            container.removeViewAt(pos)
+            container.addView(tv, pos, et.layoutParams)
+        }
+        if (idx < sentenceViews.size) sentenceViews[idx] = tv
+
+        editingSentenceIndex = -1
+        editingEditText = null
+        editingEditBtn = null
+        editBtn?.text = "✏️ Bearbeiten"
+        editBtn?.setTextColor(Color.WHITE)
+
+        runCatching {
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                .hideSoftInputFromWindow(et.windowToken, 0)
+        }
+        val sheet = previewBottomSheet
+        val p = previewSheetParams
+        if (sheet != null && p != null) {
+            p.flags = p.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            runCatching { windowManager.updateViewLayout(sheet, p) }
+        }
+    }
+
+    private fun finishWordEdit() {
+        if (editingSentenceIndex >= 0) commitWordEdit()
+    }
+
     private fun startMiniRecording(rerecordBtn: TextView) {
         if (isMiniRecording) {
             stopMiniRecording(rerecordBtn)
             return
         }
+        finishWordEdit()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
         val localAvailable = prefs.getBoolean(KEY_ONDEVICE_WHISPER, false) &&
@@ -1864,6 +2007,16 @@ class FloatingButtonService : Service() {
     }
 
     private fun hidePreviewOverlay() {
+        if (editingSentenceIndex >= 0) {
+            val et = editingEditText
+            if (et != null) runCatching {
+                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .hideSoftInputFromWindow(et.windowToken, 0)
+            }
+            editingSentenceIndex = -1
+            editingEditText = null
+            editingEditBtn = null
+        }
         if (isMiniRecording) {
             runCatching { miniMediaRecorder?.stop() }
             runCatching { miniMediaRecorder?.release() }
@@ -1880,6 +2033,7 @@ class FloatingButtonService : Service() {
         runCatching { previewView?.let { windowManager.removeView(it) } }
         previewView = null
         previewBottomSheet = null
+        previewSheetParams = null
         sentenceViews.clear()
         previewSentences.clear()
         selectedSentenceIndex = -1
