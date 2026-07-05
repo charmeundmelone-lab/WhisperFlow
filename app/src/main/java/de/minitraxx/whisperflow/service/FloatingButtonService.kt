@@ -98,6 +98,7 @@ class FloatingButtonService : Service() {
     private var previewSentences = mutableListOf<String>()
     private var selectedSentenceIndex = -1
     private var sentenceViews = mutableListOf<TextView>()
+    private var sentenceContainerView: LinearLayout? = null
     private var editingSentenceIndex = -1
     private var editingEditText: EditText? = null
     private var editingEditBtn: TextView? = null
@@ -109,6 +110,22 @@ class FloatingButtonService : Service() {
     private var miniAutoStopRunnable: Runnable? = null
     private val miniTimerHandler = Handler(Looper.getMainLooper())
     private var miniTimerRunnable: Runnable? = null
+
+    // Stilprofil-Einstellungen des zuletzt verarbeiteten Diktats — wird beim
+    // "Weitersprechen" für den neu angehängten Text wiederverwendet, damit die
+    // Claude-Korrektur konsistent bleibt (nicht neu aus activePackage abgeleitet,
+    // die App im Vordergrund kann sich geändert haben während der Editor offen ist).
+    private var previewEffectiveProfile = PROFILE_WHATSAPP
+    private var previewEffectiveEmojiLevel = EMOJI_FEW
+    private var previewHeadingsEnabled = true
+    private var previewLanguage = ""
+
+    private var isAppendRecording = false
+    private var appendRecordingFile: File? = null
+    private var appendRecordingStartTime = 0L
+    private var appendMediaRecorder: MediaRecorder? = null
+    private var appendAutoStopRunnable: Runnable? = null
+    private var appendTimerRunnable: Runnable? = null
     private var actionRow: LinearLayout? = null
     private val undoStack = ArrayDeque<Pair<Int, String>>() // index + text
     private var undoBtn: TextView? = null
@@ -1387,6 +1404,10 @@ class FloatingButtonService : Service() {
             ) -> PROFILE_PROFESSIONAL
             else -> profile
         }
+        previewEffectiveProfile = effectiveProfile
+        previewEffectiveEmojiLevel = effectiveEmojiLevel
+        previewHeadingsEnabled = headingsEnabled
+        previewLanguage = language
 
         val finalText = (if (anthropicKey.isNotBlank()) {
             val profileLabel = when (effectiveProfile) {
@@ -1509,6 +1530,7 @@ class FloatingButtonService : Service() {
             orientation = LinearLayout.VERTICAL
             setPadding((16 * dp).toInt(), (12 * dp).toInt(), (16 * dp).toInt(), (12 * dp).toInt())
         }
+        sentenceContainerView = sentenceContainer
 
         previewSentences.forEachIndexed { idx, sentence ->
             val tv = TextView(this).apply {
@@ -1637,6 +1659,19 @@ class FloatingButtonService : Service() {
             }
         }
 
+        val appendBtn = TextView(this).apply {
+            this.text = "🎙️+"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding((10 * dp).toInt(), (6 * dp).toInt(), (10 * dp).toInt(), (6 * dp).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * dp
+                setColor(Color.parseColor("#2C2C2E"))
+            }
+            setOnClickListener { toggleAppendRecording(this) }
+        }
+
         val toolbarSpacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
         }
@@ -1649,7 +1684,8 @@ class FloatingButtonService : Service() {
         }
 
         toolbar.addView(uBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
-        toolbar.addView(copyBtn)
+        toolbar.addView(copyBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
+        toolbar.addView(appendBtn)
         toolbar.addView(toolbarSpacer)
         toolbar.addView(swipeHint)
         root.addView(toolbar)
@@ -1801,7 +1837,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun startWordEdit(editBtn: TextView) {
-        if (isMiniRecording) return
+        if (isMiniRecording || isAppendRecording) return
         val idx = selectedSentenceIndex
         val tv = sentenceViews.getOrNull(idx) ?: return
         val container = tv.parent as? LinearLayout ?: return
@@ -1906,11 +1942,151 @@ class FloatingButtonService : Service() {
         if (editingSentenceIndex >= 0) commitWordEdit()
     }
 
+    // ── Weitersprechen: beliebig oft Text ans Ende der Satzliste anhängen ───────
+
+    private fun toggleAppendRecording(appendBtn: TextView) {
+        if (isAppendRecording) stopAppendRecording(appendBtn) else startAppendRecording(appendBtn)
+    }
+
+    private fun startAppendRecording(appendBtn: TextView) {
+        if (isMiniRecording || isAppendRecording) return
+        finishWordEdit()
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
+        val localAvailable = prefs.getBoolean(KEY_ONDEVICE_WHISPER, false) &&
+            ModelManager.isModelAvailable(this)
+        if (openAiKey.isBlank() && !localAvailable) return
+
+        appendRecordingStartTime = System.currentTimeMillis()
+        appendRecordingFile = File(cacheDir, "append_rec_${System.currentTimeMillis()}.m4a")
+        runCatching {
+            appendMediaRecorder = createMediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128_000)
+                setAudioSamplingRate(44_100)
+                setOutputFile(appendRecordingFile!!.absolutePath)
+                prepare()
+                start()
+            }
+            isAppendRecording = true
+            appendBtn.setTextColor(Color.parseColor("#FF453A"))
+            startPulseRing()
+
+            val startedAt = appendRecordingStartTime
+            appendTimerRunnable = object : Runnable {
+                override fun run() {
+                    if (!isAppendRecording) return
+                    val s = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
+                    val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
+                               else "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+                    appendBtn.text = "⏹ $time"
+                    miniTimerHandler.postDelayed(this, 1000)
+                }
+            }
+            appendBtn.text = "⏹ 0:00"
+            miniTimerHandler.post(appendTimerRunnable!!)
+        }
+
+        // Gleiches Preset wie die Hauptaufnahme (Duration-Badge) — konsistent statt eines
+        // eigenen, willkürlichen Zeitlimits nur fürs Weitersprechen.
+        appendAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+        val autoStop = Runnable { if (isAppendRecording) stopAppendRecording(appendBtn) }
+        appendAutoStopRunnable = autoStop
+        miniTimerHandler.postDelayed(autoStop, currentMaxSeconds * 1000L)
+    }
+
+    private fun stopAppendRecording(appendBtn: TextView) {
+        if (!isAppendRecording) return
+        isAppendRecording = false
+        appendBtn.text = "🎙️+"
+        appendBtn.setTextColor(Color.WHITE)
+        stopPulseRing()
+        appendAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+        appendAutoStopRunnable = null
+        appendTimerRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+        appendTimerRunnable = null
+
+        runCatching { appendMediaRecorder?.stop() }
+        runCatching { appendMediaRecorder?.release() }
+        appendMediaRecorder = null
+
+        val file = appendRecordingFile ?: return
+        appendRecordingFile = null
+
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
+        val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
+        val whisperLanguage = if (previewLanguage == "platt") "de" else previewLanguage
+        val appendDurationMs = (System.currentTimeMillis() - appendRecordingStartTime).coerceAtLeast(0)
+
+        serviceScope.launch {
+            val result = smartTranscribe(file, whisperLanguage, appendDurationMs, openAiKey, trackCost = true)
+            file.delete()
+            result.onSuccess { rawText ->
+                val cleaned = rawText.trim().removeFillWords()
+                val corrected = if (anthropicKey.isNotBlank()) {
+                    val profileLabel = when (previewEffectiveProfile) {
+                        PROFILE_PROFESSIONAL -> "Professionell"
+                        PROFILE_FORMAL       -> "Formal"
+                        else                 -> "WhatsApp"
+                    }
+                    withContext(Dispatchers.Main) {
+                        showStatus("Korrigiere [$profileLabel]...", Color.parseColor("#8E8E93"))
+                    }
+                    val systemPrompt = StylePrompts.get(
+                        previewEffectiveProfile, previewEffectiveEmojiLevel, previewHeadingsEnabled, previewLanguage
+                    )
+                    CostTracker.recordClaude(this@FloatingButtonService)
+                    ClaudeClient.correct(cleaned, systemPrompt, anthropicKey).getOrDefault(cleaned)
+                } else cleaned
+                val finalAppendText = corrected.stripDictationPrefix().replacePunctuationWords()
+                val newSentences = splitIntoSentences(finalAppendText)
+                withContext(Dispatchers.Main) { appendSentences(newSentences) }
+            }.onFailure {
+                showToast(
+                    if (it.message?.contains("API-Key") == true) it.message ?: "Kein OpenAI API-Key"
+                    else "Whisper-Fehler: ${it.message?.take(60)}"
+                )
+            }
+            withContext(Dispatchers.Main) { hideStatus() }
+        }
+    }
+
+    private fun appendSentences(newSentences: List<String>) {
+        val container = sentenceContainerView ?: return
+        val dp = resources.displayMetrics.density
+        for (text in newSentences) {
+            val idx = previewSentences.size
+            previewSentences.add(text)
+            val tv = TextView(this).apply {
+                this.text = text
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                setLineSpacing(3 * dp, 1f)
+                setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 10 * dp
+                    setColor(Color.TRANSPARENT)
+                }
+                setOnClickListener { selectSentence(idx) }
+            }
+            val tvParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (6 * dp).toInt() }
+            container.addView(tv, tvParams)
+            sentenceViews.add(tv)
+        }
+    }
+
     private fun startMiniRecording(rerecordBtn: TextView) {
         if (isMiniRecording) {
             stopMiniRecording(rerecordBtn)
             return
         }
+        if (isAppendRecording) return
         finishWordEdit()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
@@ -2030,10 +2206,24 @@ class FloatingButtonService : Service() {
             miniRecordingFile?.delete()
             miniRecordingFile = null
         }
+        if (isAppendRecording) {
+            runCatching { appendMediaRecorder?.stop() }
+            runCatching { appendMediaRecorder?.release() }
+            appendMediaRecorder = null
+            isAppendRecording = false
+            stopPulseRing()
+            appendAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+            appendAutoStopRunnable = null
+            appendTimerRunnable?.let { miniTimerHandler.removeCallbacks(it) }
+            appendTimerRunnable = null
+            appendRecordingFile?.delete()
+            appendRecordingFile = null
+        }
         runCatching { previewView?.let { windowManager.removeView(it) } }
         previewView = null
         previewBottomSheet = null
         previewSheetParams = null
+        sentenceContainerView = null
         sentenceViews.clear()
         previewSentences.clear()
         selectedSentenceIndex = -1
