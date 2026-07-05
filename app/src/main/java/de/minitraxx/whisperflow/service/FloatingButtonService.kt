@@ -15,7 +15,9 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
@@ -99,9 +101,10 @@ class FloatingButtonService : Service() {
     private var selectedSentenceIndex = -1
     private var sentenceViews = mutableListOf<TextView>()
     private var sentenceContainerView: LinearLayout? = null
+    private var sentenceCountView: TextView? = null
     private var editingSentenceIndex = -1
     private var editingEditText: EditText? = null
-    private var editingEditBtn: TextView? = null
+    private var editingEditBtn: ImageView? = null
     private var isMiniRecording = false
     private var miniRecordingFile: File? = null
     private var miniRecordingStartTime = 0L
@@ -128,7 +131,7 @@ class FloatingButtonService : Service() {
     private var appendTimerRunnable: Runnable? = null
     private var actionRow: LinearLayout? = null
     private val undoStack = ArrayDeque<Pair<Int, String>>() // index + text
-    private var undoBtn: TextView? = null
+    private var undoBtn: ImageView? = null
 
     private val amplitudeHandler = Handler(Looper.getMainLooper())
     private val amplitudeHistory = ArrayDeque<Float>()
@@ -1450,6 +1453,95 @@ class FloatingButtonService : Service() {
         return if (result.isEmpty()) listOf(text) else result
     }
 
+    // ── Editor-Material: gleiche Verlauf/Rand/Tiefe-Sprache wie der Floating Button ──
+
+    private fun sentenceBackground(dp: Float, selected: Boolean): Drawable {
+        val base = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 10 * dp
+            if (selected) {
+                colors = intArrayOf(Color.parseColor("#33FFD60A"), Color.parseColor("#1AF5A800"))
+                orientation = GradientDrawable.Orientation.TL_BR
+                setStroke((1 * dp).toInt(), Color.parseColor("#8CFFD60A"))
+            } else {
+                setColor(Color.TRANSPARENT)
+            }
+        }
+        if (selected) return base
+        // Feine Haarlinie am unteren Rand: macht sichtbar, dass jeder Satz eine einzeln
+        // antippbare Einheit ist, ohne die Liste in schwere Kästchen zu zerlegen.
+        val hairline = GradientDrawable().apply { setColor(Color.parseColor("#0BFFFFFF")) }
+        return LayerDrawable(arrayOf(base, hairline)).apply {
+            setLayerGravity(1, Gravity.BOTTOM)
+            setLayerHeight(1, (1 * dp).toInt())
+        }
+    }
+
+    private fun updateSentenceCount() {
+        val n = previewSentences.size
+        sentenceCountView?.text = if (n == 1) "1 Satz" else "$n Sätze"
+    }
+
+    private fun buildSentenceTextView(text: String, idx: Int, selected: Boolean = false): TextView {
+        val dp = resources.displayMetrics.density
+        return TextView(this).apply {
+            this.text = text
+            textSize = 16f
+            setTextColor(if (selected) Color.parseColor("#FFD60A") else Color.WHITE)
+            setLineSpacing(3 * dp, 1f)
+            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
+            background = sentenceBackground(dp, selected)
+            setOnClickListener { selectSentence(idx) }
+        }
+    }
+
+    private fun iconButtonBackground(dp: Float, grad1: Int, grad2: Int, stroke: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 8 * dp
+            colors = intArrayOf(grad1, grad2)
+            orientation = GradientDrawable.Orientation.TL_BR
+            setStroke((1 * dp).toInt(), stroke)
+        }
+    }
+
+    private fun buildIconButton(dp: Float, iconRes: Int, grad1: Int, grad2: Int, stroke: Int, iconTint: Int): ImageView {
+        return ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(iconTint)
+            background = iconButtonBackground(dp, grad1, grad2, stroke)
+            val pad = (11 * dp).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+    }
+
+    private class RecordIconButton(val root: LinearLayout, val icon: ImageView, val timerLabel: TextView)
+
+    private fun buildRecordIconButton(dp: Float, grad1: Int, grad2: Int, stroke: Int, iconTint: Int): RecordIconButton {
+        val icon = ImageView(this).apply {
+            setImageResource(R.drawable.ic_mic)
+            setColorFilter(iconTint)
+            layoutParams = LinearLayout.LayoutParams((18 * dp).toInt(), (18 * dp).toInt())
+        }
+        val label = TextView(this).apply {
+            textSize = 12.5f
+            setTextColor(iconTint)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (6 * dp).toInt() }
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding((12 * dp).toInt(), (9 * dp).toInt(), (12 * dp).toInt(), (9 * dp).toInt())
+            background = iconButtonBackground(dp, grad1, grad2, stroke)
+            addView(icon)
+            addView(label)
+        }
+        return RecordIconButton(root, icon, label)
+    }
+
     private fun showPreviewOverlay(inputText: String) {
         hidePreviewOverlay()
         undoStack.clear()
@@ -1462,13 +1554,14 @@ class FloatingButtonService : Service() {
         selectedSentenceIndex = -1
         sentenceViews.clear()
 
-        // Root layout
+        // Root layout — gleicher Verlauf wie der Idle-Button, nur mit sehr wenig Kontrast
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadii = floatArrayOf(24*dp, 24*dp, 24*dp, 24*dp, 0f, 0f, 0f, 0f)
-                setColor(Color.parseColor("#1C1C1E"))
+                colors = intArrayOf(Color.parseColor("#232326"), Color.parseColor("#16161A"))
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
             }
             elevation = 24f * dp
         }
@@ -1501,6 +1594,12 @@ class FloatingButtonService : Service() {
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
+        val countTv = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.parseColor("#8E8E93"))
+            setPadding(0, 0, (10 * dp).toInt(), 0)
+        }
+        sentenceCountView = countTv
         val closeBtn = TextView(this).apply {
             text = "✕"
             textSize = 18f
@@ -1509,6 +1608,7 @@ class FloatingButtonService : Service() {
             setOnClickListener { hidePreviewOverlay() }
         }
         header.addView(titleTv)
+        header.addView(countTv)
         header.addView(closeBtn)
         root.addView(header)
 
@@ -1533,19 +1633,7 @@ class FloatingButtonService : Service() {
         sentenceContainerView = sentenceContainer
 
         previewSentences.forEachIndexed { idx, sentence ->
-            val tv = TextView(this).apply {
-                text = sentence
-                textSize = 16f
-                setTextColor(Color.WHITE)
-                setLineSpacing(3 * dp, 1f)
-                setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10 * dp
-                    setColor(Color.TRANSPARENT)
-                }
-                setOnClickListener { selectSentence(idx) }
-            }
+            val tv = buildSentenceTextView(sentence, idx)
             val tvParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = (6 * dp).toInt() }
@@ -1554,64 +1642,46 @@ class FloatingButtonService : Service() {
         }
         scroll.addView(sentenceContainer)
         root.addView(scroll)
+        updateSentenceCount()
 
-        // Action row (initially hidden, shown on sentence select)
+        // Action row (initially hidden, shown on sentence select) — gleiches Metall wie
+        // der Idle-Button; Löschen trägt permanent den echten Aufnahme-Rot-Verlauf.
         val aRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             visibility = View.GONE
             setPadding((16 * dp).toInt(), (8 * dp).toInt(), (16 * dp).toInt(), (8 * dp).toInt())
-            setBackgroundColor(Color.parseColor("#2C2C2E"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                colors = intArrayOf(Color.parseColor("#2E000000"), Color.parseColor("#52000000"))
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            }
             gravity = Gravity.CENTER_VERTICAL
         }
-        val deleteBtn = TextView(this).apply {
-            text = "🗑 Löschen"
-            textSize = 14f
-            setTextColor(Color.parseColor("#FF453A"))
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 8 * dp
-                setColor(Color.parseColor("#1AFF453A"))
-            }
-            setOnClickListener { deleteSelectedSentence() }
-        }
-        val editBtn = TextView(this).apply {
-            text = "✏️ Bearbeiten"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 8 * dp
-                setColor(Color.parseColor("#2C2C2E"))
-                setStroke((1 * dp).toInt(), Color.parseColor("#48484A"))
-            }
-            setOnClickListener { toggleWordEdit(this) }
-        }
-        val rerecordBtn = TextView(this).apply {
-            text = "🎤 Neu sprechen"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 8 * dp
-                setColor(Color.parseColor("#2C2C2E"))
-                setStroke((1 * dp).toInt(), Color.parseColor("#48484A"))
-            }
-            setOnClickListener { startMiniRecording(rerecordBtn = this) }
-        }
+        val deleteBtn = buildIconButton(
+            dp, R.drawable.ic_delete,
+            Color.parseColor("#FF1A40"), Color.parseColor("#8B0000"), Color.parseColor("#FF4060"),
+            Color.WHITE
+        ).apply { setOnClickListener { deleteSelectedSentence() } }
+        val editBtn = buildIconButton(
+            dp, R.drawable.ic_edit,
+            Color.parseColor("#2C2C2F"), Color.parseColor("#141416"), Color.parseColor("#48484A"),
+            Color.WHITE
+        ).apply { setOnClickListener { toggleWordEdit(this) } }
+        val rerecordIcon = buildRecordIconButton(
+            dp, Color.parseColor("#2C2C2F"), Color.parseColor("#141416"), Color.parseColor("#48484A"), Color.WHITE
+        )
+        rerecordIcon.root.setOnClickListener { startMiniRecording(rerecordIcon) }
         val spacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
         }
         aRow.addView(deleteBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
         aRow.addView(editBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
-        aRow.addView(rerecordBtn)
+        aRow.addView(rerecordIcon.root)
         aRow.addView(spacer)
         root.addView(aRow)
         actionRow = aRow
 
-        // ── Permanente Toolbar: Rückgängig + Kopieren + Swipe-Hint ───────────────
+        // ── Permanente Toolbar: Rückgängig + Kopieren + Weitersprechen + Swipe-Hint ──
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1619,58 +1689,42 @@ class FloatingButtonService : Service() {
             setBackgroundColor(Color.parseColor("#111113"))
         }
 
-        val uBtn = TextView(this).apply {
-            this.text = "↩"
-            textSize = 18f
-            setTextColor(Color.WHITE)
+        val uBtn = buildIconButton(
+            dp, R.drawable.ic_undo,
+            Color.parseColor("#2C2C2F"), Color.parseColor("#141416"), Color.parseColor("#48484A"),
+            Color.WHITE
+        ).apply {
             alpha = 0.35f
             isClickable = false
-            setPadding((10 * dp).toInt(), (6 * dp).toInt(), (10 * dp).toInt(), (6 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 8 * dp
-                setColor(Color.parseColor("#2C2C2E"))
-            }
             setOnClickListener { undoDeleteSentence() }
         }
         undoBtn = uBtn
 
-        val copyBtn = TextView(this).apply {
-            this.text = "⎘"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setPadding((10 * dp).toInt(), (6 * dp).toInt(), (10 * dp).toInt(), (6 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 8 * dp
-                setColor(Color.parseColor("#2C2C2E"))
-            }
+        val copyBtn = buildIconButton(
+            dp, R.drawable.ic_copy,
+            Color.parseColor("#2C2C2F"), Color.parseColor("#141416"), Color.parseColor("#48484A"),
+            Color.WHITE
+        ).apply {
             setOnClickListener {
                 finishWordEdit()
                 val textToCopy = previewSentences.joinToString(" ")
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("whisperflow", textToCopy))
-                this.text = "✓"
-                setTextColor(Color.parseColor("#32D74B"))
+                setImageResource(R.drawable.ic_check)
+                setColorFilter(Color.parseColor("#32D74B"))
                 Handler(Looper.getMainLooper()).postDelayed({
-                    this.text = "⎘"
-                    setTextColor(Color.WHITE)
+                    setImageResource(R.drawable.ic_copy)
+                    setColorFilter(Color.WHITE)
                 }, 1500)
             }
         }
 
-        val appendBtn = TextView(this).apply {
-            this.text = "🎙️+"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setPadding((10 * dp).toInt(), (6 * dp).toInt(), (10 * dp).toInt(), (6 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 8 * dp
-                setColor(Color.parseColor("#2C2C2E"))
-            }
-            setOnClickListener { toggleAppendRecording(this) }
-        }
+        // Weitersprechen ist die einzige Aktion mit dem Gold-Verlauf des Edge-Tabs — sie
+        // ist der nächste sinnvolle Schritt, Rückgängig/Kopieren bleiben stille Werkzeuge.
+        val appendIcon = buildRecordIconButton(
+            dp, Color.parseColor("#FFD60A"), Color.parseColor("#F5A800"), Color.TRANSPARENT, Color.parseColor("#241C00")
+        )
+        appendIcon.root.setOnClickListener { toggleAppendRecording(appendIcon) }
 
         val toolbarSpacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
@@ -1685,7 +1739,7 @@ class FloatingButtonService : Service() {
 
         toolbar.addView(uBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
         toolbar.addView(copyBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = (8 * dp).toInt() })
-        toolbar.addView(appendBtn)
+        toolbar.addView(appendIcon.root)
         toolbar.addView(toolbarSpacer)
         toolbar.addView(swipeHint)
         root.addView(toolbar)
@@ -1743,11 +1797,7 @@ class FloatingButtonService : Service() {
         // Deselect previous
         if (selectedSentenceIndex >= 0) {
             sentenceViews.getOrNull(selectedSentenceIndex)?.apply {
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10 * dp
-                    setColor(Color.TRANSPARENT)
-                }
+                background = sentenceBackground(dp, selected = false)
                 setTextColor(Color.WHITE)
             }
         }
@@ -1759,12 +1809,7 @@ class FloatingButtonService : Service() {
         }
         selectedSentenceIndex = idx
         sentenceViews.getOrNull(idx)?.apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 10 * dp
-                setColor(Color.parseColor("#33FFD60A"))
-                setStroke((1 * dp).toInt(), Color.parseColor("#FFD60A"))
-            }
+            background = sentenceBackground(dp, selected = true)
             setTextColor(Color.parseColor("#FFD60A"))
         }
         actionRow?.visibility = View.VISIBLE
@@ -1783,6 +1828,7 @@ class FloatingButtonService : Service() {
         selectedSentenceIndex = -1
         actionRow?.visibility = View.GONE
         updateUndoButton()
+        updateSentenceCount()
     }
 
     private fun updateUndoButton() {
@@ -1800,35 +1846,20 @@ class FloatingButtonService : Service() {
         previewSentences.add(insertAt, text)
 
         val dp = resources.displayMetrics.density
-        val tv = TextView(this).apply {
-            this.text = text
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setLineSpacing(3 * dp, 1f)
-            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 10 * dp
-                setColor(Color.TRANSPARENT)
-            }
-            val newIdx = insertAt
-            setOnClickListener { selectSentence(newIdx) }
-        }
+        val tv = buildSentenceTextView(text, insertAt)
         val tvParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = (6 * dp).toInt() }
 
-        // Finde sentenceContainer (Parent der sentenceViews)
-        val container = sentenceViews.firstOrNull()?.parent as? LinearLayout
-            ?: sentenceViews.lastOrNull()?.parent as? LinearLayout
-        container?.addView(tv, insertAt, tvParams)
+        sentenceContainerView?.addView(tv, insertAt, tvParams)
         sentenceViews.add(insertAt, tv)
         updateUndoButton()
+        updateSentenceCount()
     }
 
     // ── Wort-Editor: Satz per System-Tastatur statt per Sprache korrigieren ──────
 
-    private fun toggleWordEdit(editBtn: TextView) {
+    private fun toggleWordEdit(editBtn: ImageView) {
         if (editingSentenceIndex >= 0) {
             commitWordEdit()
         } else {
@@ -1836,7 +1867,7 @@ class FloatingButtonService : Service() {
         }
     }
 
-    private fun startWordEdit(editBtn: TextView) {
+    private fun startWordEdit(editBtn: ImageView) {
         if (isMiniRecording || isAppendRecording) return
         val idx = selectedSentenceIndex
         val tv = sentenceViews.getOrNull(idx) ?: return
@@ -1866,8 +1897,8 @@ class FloatingButtonService : Service() {
         editingSentenceIndex = idx
         editingEditText = et
         editingEditBtn = editBtn
-        editBtn.text = "✓ Fertig"
-        editBtn.setTextColor(Color.parseColor("#32D74B"))
+        editBtn.setImageResource(R.drawable.ic_check)
+        editBtn.setColorFilter(Color.parseColor("#32D74B"))
 
         // Fenster muss kurzzeitig fokussierbar werden, sonst bekommt das EditText nie den
         // Fokus und die Tastatur bleibt unten — Overlay-Fenster sind sonst bewusst
@@ -1892,26 +1923,8 @@ class FloatingButtonService : Service() {
         val newText = et.text.toString()
         if (idx < previewSentences.size) previewSentences[idx] = newText
 
-        val dp = resources.displayMetrics.density
         val isSelected = selectedSentenceIndex == idx
-        val tv = TextView(this).apply {
-            text = newText
-            textSize = 16f
-            setTextColor(if (isSelected) Color.parseColor("#FFD60A") else Color.WHITE)
-            setLineSpacing(3 * dp, 1f)
-            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 10 * dp
-                if (isSelected) {
-                    setColor(Color.parseColor("#33FFD60A"))
-                    setStroke((1 * dp).toInt(), Color.parseColor("#FFD60A"))
-                } else {
-                    setColor(Color.TRANSPARENT)
-                }
-            }
-            setOnClickListener { selectSentence(idx) }
-        }
+        val tv = buildSentenceTextView(newText, idx, isSelected)
         val container = et.parent as? LinearLayout
         val pos = container?.indexOfChild(et) ?: -1
         if (container != null && pos >= 0) {
@@ -1923,8 +1936,8 @@ class FloatingButtonService : Service() {
         editingSentenceIndex = -1
         editingEditText = null
         editingEditBtn = null
-        editBtn?.text = "✏️ Bearbeiten"
-        editBtn?.setTextColor(Color.WHITE)
+        editBtn?.setImageResource(R.drawable.ic_edit)
+        editBtn?.setColorFilter(Color.WHITE)
 
         runCatching {
             (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
@@ -1944,11 +1957,11 @@ class FloatingButtonService : Service() {
 
     // ── Weitersprechen: beliebig oft Text ans Ende der Satzliste anhängen ───────
 
-    private fun toggleAppendRecording(appendBtn: TextView) {
+    private fun toggleAppendRecording(appendBtn: RecordIconButton) {
         if (isAppendRecording) stopAppendRecording(appendBtn) else startAppendRecording(appendBtn)
     }
 
-    private fun startAppendRecording(appendBtn: TextView) {
+    private fun startAppendRecording(appendBtn: RecordIconButton) {
         if (isMiniRecording || isAppendRecording) return
         finishWordEdit()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -1971,7 +1984,15 @@ class FloatingButtonService : Service() {
                 start()
             }
             isAppendRecording = true
-            appendBtn.setTextColor(Color.parseColor("#FF453A"))
+            // Gleiche Aufnahme-Rot-Sprache wie der Hauptbutton — unabhängig davon, dass der
+            // Button im Ruhezustand golden ist. Rot = "Mikro ist gerade offen", überall gleich.
+            val dp = resources.displayMetrics.density
+            appendBtn.root.background = iconButtonBackground(
+                dp, Color.parseColor("#FF1A40"), Color.parseColor("#8B0000"), Color.parseColor("#FF4060")
+            )
+            appendBtn.icon.setImageResource(R.drawable.ic_stop)
+            appendBtn.icon.setColorFilter(Color.WHITE)
+            appendBtn.timerLabel.setTextColor(Color.WHITE)
             startPulseRing()
 
             val startedAt = appendRecordingStartTime
@@ -1981,11 +2002,12 @@ class FloatingButtonService : Service() {
                     val s = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
                     val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
                                else "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
-                    appendBtn.text = "⏹ $time"
+                    appendBtn.timerLabel.text = time
                     miniTimerHandler.postDelayed(this, 1000)
                 }
             }
-            appendBtn.text = "⏹ 0:00"
+            appendBtn.timerLabel.text = "0:00"
+            appendBtn.timerLabel.visibility = View.VISIBLE
             miniTimerHandler.post(appendTimerRunnable!!)
         }
 
@@ -1997,11 +2019,16 @@ class FloatingButtonService : Service() {
         miniTimerHandler.postDelayed(autoStop, currentMaxSeconds * 1000L)
     }
 
-    private fun stopAppendRecording(appendBtn: TextView) {
+    private fun stopAppendRecording(appendBtn: RecordIconButton) {
         if (!isAppendRecording) return
         isAppendRecording = false
-        appendBtn.text = "🎙️+"
-        appendBtn.setTextColor(Color.WHITE)
+        val dp = resources.displayMetrics.density
+        appendBtn.root.background = iconButtonBackground(
+            dp, Color.parseColor("#FFD60A"), Color.parseColor("#F5A800"), Color.TRANSPARENT
+        )
+        appendBtn.icon.setImageResource(R.drawable.ic_mic)
+        appendBtn.icon.setColorFilter(Color.parseColor("#241C00"))
+        appendBtn.timerLabel.visibility = View.GONE
         stopPulseRing()
         appendAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
         appendAutoStopRunnable = null
@@ -2060,28 +2087,17 @@ class FloatingButtonService : Service() {
         for (text in newSentences) {
             val idx = previewSentences.size
             previewSentences.add(text)
-            val tv = TextView(this).apply {
-                this.text = text
-                textSize = 16f
-                setTextColor(Color.WHITE)
-                setLineSpacing(3 * dp, 1f)
-                setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10 * dp
-                    setColor(Color.TRANSPARENT)
-                }
-                setOnClickListener { selectSentence(idx) }
-            }
+            val tv = buildSentenceTextView(text, idx)
             val tvParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = (6 * dp).toInt() }
             container.addView(tv, tvParams)
             sentenceViews.add(tv)
         }
+        updateSentenceCount()
     }
 
-    private fun startMiniRecording(rerecordBtn: TextView) {
+    private fun startMiniRecording(rerecordBtn: RecordIconButton) {
         if (isMiniRecording) {
             stopMiniRecording(rerecordBtn)
             return
@@ -2112,7 +2128,11 @@ class FloatingButtonService : Service() {
                 start()
             }
             isMiniRecording = true
-            rerecordBtn.setTextColor(Color.parseColor("#FF453A"))
+            val dp = resources.displayMetrics.density
+            rerecordBtn.root.background = iconButtonBackground(
+                dp, Color.parseColor("#FF1A40"), Color.parseColor("#8B0000"), Color.parseColor("#FF4060")
+            )
+            rerecordBtn.icon.setImageResource(R.drawable.ic_stop)
             startPulseRing()
 
             val startedAt = miniRecordingStartTime
@@ -2122,11 +2142,12 @@ class FloatingButtonService : Service() {
                     val s = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
                     val time = if (s < 60) "0:${s.toString().padStart(2, '0')}"
                                else "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
-                    rerecordBtn.text = "⏹ $time"
+                    rerecordBtn.timerLabel.text = time
                     miniTimerHandler.postDelayed(this, 1000)
                 }
             }
-            rerecordBtn.text = "⏹ 0:00"
+            rerecordBtn.timerLabel.text = "0:00"
+            rerecordBtn.timerLabel.visibility = View.VISIBLE
             miniTimerHandler.post(miniTimerRunnable!!)
         }
 
@@ -2138,11 +2159,15 @@ class FloatingButtonService : Service() {
         miniTimerHandler.postDelayed(autoStop, 30_000)
     }
 
-    private fun stopMiniRecording(rerecordBtn: TextView) {
+    private fun stopMiniRecording(rerecordBtn: RecordIconButton) {
         if (!isMiniRecording) return
         isMiniRecording = false
-        rerecordBtn.text = "🎤 Neu sprechen"
-        rerecordBtn.setTextColor(Color.WHITE)
+        val dp = resources.displayMetrics.density
+        rerecordBtn.root.background = iconButtonBackground(
+            dp, Color.parseColor("#2C2C2F"), Color.parseColor("#141416"), Color.parseColor("#48484A")
+        )
+        rerecordBtn.icon.setImageResource(R.drawable.ic_mic)
+        rerecordBtn.timerLabel.visibility = View.GONE
         stopPulseRing()
         miniAutoStopRunnable?.let { miniTimerHandler.removeCallbacks(it) }
         miniAutoStopRunnable = null
@@ -2224,6 +2249,7 @@ class FloatingButtonService : Service() {
         previewBottomSheet = null
         previewSheetParams = null
         sentenceContainerView = null
+        sentenceCountView = null
         sentenceViews.clear()
         previewSentences.clear()
         selectedSentenceIndex = -1
