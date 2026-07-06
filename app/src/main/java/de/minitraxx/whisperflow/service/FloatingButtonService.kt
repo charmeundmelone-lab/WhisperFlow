@@ -41,7 +41,9 @@ import de.minitraxx.whisperflow.R
 import de.minitraxx.whisperflow.api.ClaudeClient
 import de.minitraxx.whisperflow.api.StylePrompts
 import de.minitraxx.whisperflow.api.WhisperClient
+import de.minitraxx.whisperflow.api.WhisperPrompts
 import de.minitraxx.whisperflow.util.CostTracker
+import de.minitraxx.whisperflow.util.CustomVocab
 import de.minitraxx.whisperflow.whisper.LocalWhisperEngine
 import de.minitraxx.whisperflow.whisper.ModelManager
 import kotlinx.coroutines.*
@@ -105,6 +107,9 @@ class FloatingButtonService : Service() {
     private var editingSentenceIndex = -1
     private var editingEditText: EditText? = null
     private var editingEditBtn: ImageView? = null
+    private val vocabHintHandler = Handler(Looper.getMainLooper())
+    private var pendingVocabHintRunnable: Runnable? = null
+    private var pendingVocabHintBtn: ImageView? = null
     private var isMiniRecording = false
     private var miniRecordingFile: File? = null
     private var miniRecordingStartTime = 0L
@@ -1343,11 +1348,14 @@ class FloatingButtonService : Service() {
         val flagOn = prefs.getBoolean(KEY_ONDEVICE_WHISPER, false)
         val durationOk = durationMs in 1..LOCAL_WHISPER_MAX_MS
         val modelOk = ModelManager.isModelAvailable(this)
+        // Gleiche Quelle für Cloud- und On-Device-Pfad: fester Kontext-Text + persönliches
+        // Wörterbuch (siehe CustomVocab), damit beide Pfade nie auseinanderlaufen.
+        val prompt = WhisperPrompts.contextPrompt(whisperLanguage) + CustomVocab.promptSuffix(this)
 
         if (flagOn && durationOk && modelOk) {
             showStatus("Transkribiere (lokal)...", Color.parseColor("#8E8E93"))
             val startedAt = System.currentTimeMillis()
-            val local = LocalWhisperEngine.transcribe(this, file, whisperLanguage)
+            val local = LocalWhisperEngine.transcribe(this, file, whisperLanguage, prompt)
             local.getOrNull()?.let {
                 val secs = (System.currentTimeMillis() - startedAt) / 1000.0
                 val modelId = ModelManager.selectedModel(this).id
@@ -1370,7 +1378,7 @@ class FloatingButtonService : Service() {
             return Result.failure(Exception("Kein OpenAI API-Key — bitte in der Laberboombox-App eintragen"))
         }
         if (trackCost) CostTracker.recordAudio(durationMs / 1000L, this)
-        return WhisperClient.transcribe(file, openAiKey, whisperLanguage)
+        return WhisperClient.transcribe(file, openAiKey, whisperLanguage, prompt)
     }
 
     private suspend fun processAudio(file: File, durationMs: Long) {
@@ -1874,8 +1882,75 @@ class FloatingButtonService : Service() {
         }
     }
 
+    /** Liefert das einzelne geänderte Wort (Satzzeichen bereinigt) zurück, wenn sich
+     *  zwischen [oldText] und [newText] genau ein Wort unterscheidet — sonst null.
+     *  Dient als Signal, dass eine Wort-Editor-Korrektur ein Namens-/Begriffs-Verhörer
+     *  war (Kandidat fürs persönliche Wörterbuch), statt einer ganzen Satzumformulierung. */
+    private fun diffSingleWordChange(oldText: String, newText: String): String? {
+        val oldWords = oldText.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val newWords = newText.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (oldWords.size != newWords.size || oldWords.isEmpty()) return null
+        var changedIdx = -1
+        for (i in oldWords.indices) {
+            if (oldWords[i] != newWords[i]) {
+                if (changedIdx != -1) return null
+                changedIdx = i
+            }
+        }
+        if (changedIdx == -1) return null
+        val cleaned = newWords[changedIdx].trim { ch -> ch in ",.!?;:\"'„“()" }
+        return cleaned.takeIf { it.length > 1 }
+    }
+
+    private fun clearPendingVocabHint() {
+        pendingVocabHintRunnable?.let { vocabHintHandler.removeCallbacks(it) }
+        pendingVocabHintRunnable = null
+        val btn = pendingVocabHintBtn ?: return
+        pendingVocabHintBtn = null
+        btn.setImageResource(R.drawable.ic_edit)
+        btn.setColorFilter(Color.WHITE)
+        btn.setOnClickListener { toggleWordEdit(btn) }
+    }
+
+    /** Zeigt statt des Stift-Icons kurz ein "➕" auf [editBtn] — Tap merkt [word] fürs
+     *  persönliche Wörterbuch (CustomVocab), sonst verschwindet der Hinweis nach ein
+     *  paar Sekunden von selbst wieder, ohne dass etwas gespeichert wird. */
+    private fun showVocabHint(editBtn: ImageView, word: String) {
+        clearPendingVocabHint()
+        editBtn.setImageResource(R.drawable.ic_add)
+        editBtn.setColorFilter(Color.parseColor("#FFD60A"))
+        editBtn.setOnClickListener {
+            CustomVocab.add(this, word)
+            pendingVocabHintRunnable?.let { vocabHintHandler.removeCallbacks(it) }
+            editBtn.setImageResource(R.drawable.ic_check)
+            editBtn.setColorFilter(Color.parseColor("#32D74B"))
+            editBtn.setOnClickListener(null)
+            val revertAfterSave = Runnable {
+                pendingVocabHintBtn = null
+                pendingVocabHintRunnable = null
+                editBtn.setImageResource(R.drawable.ic_edit)
+                editBtn.setColorFilter(Color.WHITE)
+                editBtn.setOnClickListener { toggleWordEdit(editBtn) }
+            }
+            pendingVocabHintRunnable = revertAfterSave
+            pendingVocabHintBtn = editBtn
+            vocabHintHandler.postDelayed(revertAfterSave, 1200L)
+        }
+        pendingVocabHintBtn = editBtn
+        val revert = Runnable {
+            pendingVocabHintBtn = null
+            pendingVocabHintRunnable = null
+            editBtn.setImageResource(R.drawable.ic_edit)
+            editBtn.setColorFilter(Color.WHITE)
+            editBtn.setOnClickListener { toggleWordEdit(editBtn) }
+        }
+        pendingVocabHintRunnable = revert
+        vocabHintHandler.postDelayed(revert, 4000L)
+    }
+
     private fun startWordEdit(editBtn: ImageView) {
         if (isMiniRecording || isAppendRecording) return
+        clearPendingVocabHint()
         val idx = selectedSentenceIndex
         val tv = sentenceViews.getOrNull(idx) ?: return
         val container = tv.parent as? LinearLayout ?: return
@@ -1928,6 +2003,7 @@ class FloatingButtonService : Service() {
         if (idx < 0 || et == null) return
 
         val newText = et.text.toString()
+        val oldText = previewSentences.getOrNull(idx) ?: ""
         if (idx < previewSentences.size) previewSentences[idx] = newText
 
         val isSelected = selectedSentenceIndex == idx
@@ -1943,8 +2019,6 @@ class FloatingButtonService : Service() {
         editingSentenceIndex = -1
         editingEditText = null
         editingEditBtn = null
-        editBtn?.setImageResource(R.drawable.ic_edit)
-        editBtn?.setColorFilter(Color.WHITE)
 
         runCatching {
             (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
@@ -1955,6 +2029,16 @@ class FloatingButtonService : Service() {
         if (sheet != null && p != null) {
             p.flags = p.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             runCatching { windowManager.updateViewLayout(sheet, p) }
+        }
+
+        // Genau ein Wort geändert und noch nicht gemerkt? Dann "➕ merken"-Hinweis statt
+        // sofort zurück auf den Stift — sonst normal zurücksetzen.
+        val candidate = diffSingleWordChange(oldText, newText)
+        if (editBtn != null && candidate != null && !CustomVocab.contains(this, candidate)) {
+            showVocabHint(editBtn, candidate)
+        } else {
+            editBtn?.setImageResource(R.drawable.ic_edit)
+            editBtn?.setColorFilter(Color.WHITE)
         }
     }
 
@@ -2216,6 +2300,9 @@ class FloatingButtonService : Service() {
     }
 
     private fun hidePreviewOverlay() {
+        pendingVocabHintRunnable?.let { vocabHintHandler.removeCallbacks(it) }
+        pendingVocabHintRunnable = null
+        pendingVocabHintBtn = null
         if (editingSentenceIndex >= 0) {
             val et = editingEditText
             if (et != null) runCatching {
