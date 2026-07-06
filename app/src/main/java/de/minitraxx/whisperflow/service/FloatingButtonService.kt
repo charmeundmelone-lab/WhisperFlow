@@ -180,9 +180,12 @@ class FloatingButtonService : Service() {
         const val KEY_MAX_DURATION = "max_duration"
         private const val DURATION_MINI = 10
         private val DURATION_PRESETS = listOf(30, 90, 180, 300)
-        // On-Device Whisper (Option 1): nur Aufnahmen bis 30s (ein Whisper-Fenster).
-        // Kleiner Puffer, weil durationMs minimal über der Preset-Grenze liegen kann.
-        private const val LOCAL_WHISPER_MAX_MS = 31_500L
+        // On-Device Whisper: Aufnahmen bis 90s laufen lokal (0€) — whisper.cpp verarbeitet
+        // beliebig lange Audiodateien intern in einem Aufruf (kein App-seitiges Chunking
+        // nötig), 90s brauchen mit small/q8_0+Beam-5 geschätzt ~35-40s, weit im 90s-Timeout
+        // von LocalWhisperEngine. Kleiner Puffer, weil durationMs minimal über der
+        // Preset-Grenze liegen kann.
+        private const val LOCAL_WHISPER_MAX_MS = 91_500L
         private const val INACTIVITY_TIMEOUT_MS = 5000L
         const val KEY_EDGE_SIDE = "edge_side"
 
@@ -977,11 +980,11 @@ class FloatingButtonService : Service() {
         cancelInactivityTimer()
         hideBadges()
         if (CostTracker.isExceeded(this)) {
-            // On-Device-Aufnahmen (≤30s-Preset, Modell vorhanden) sind kostenlos —
+            // On-Device-Aufnahmen (≤90s-Preset, Modell vorhanden) sind kostenlos —
             // die dürfen auch bei aufgebrauchtem Cloud-Guthaben weiterlaufen.
             val localFree = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(KEY_ONDEVICE_WHISPER, false) &&
-                currentMaxSeconds <= 30 &&
+                currentMaxSeconds <= 90 &&
                 ModelManager.isModelAvailable(this)
             if (!localFree) {
                 Toast.makeText(this, "Guthaben aufgebraucht — bitte in der App aufladen", Toast.LENGTH_LONG).show()
@@ -1321,7 +1324,7 @@ class FloatingButtonService : Service() {
 
     /**
      * Transkription mit On-Device-Pfad (Option 1):
-     * Feature-Flag AN + Aufnahme ≤30s + Modell vorhanden → lokal (0 €).
+     * Feature-Flag AN + Aufnahme ≤90s + Modell vorhanden → lokal (0 €).
      * Jeder On-Device-Fehler fällt still auf Cloud-Whisper zurück (CLAUDE.md-Regel).
      * Kosten werden nur für den tatsächlich genutzten Cloud-Pfad erfasst.
      */
@@ -1368,7 +1371,7 @@ class FloatingButtonService : Service() {
         } else {
             val reason = when {
                 !flagOn     -> "Schalter aus"
-                !durationOk -> "Aufnahme über 30s"
+                !durationOk -> "Aufnahme über 90s"
                 else        -> "Modell fehlt oder unvollständig"
             }
             recordLocalDiag("Cloud — $reason")
