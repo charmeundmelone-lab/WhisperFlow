@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +35,7 @@ import de.minitraxx.whisperflow.service.FloatingButtonService
 import de.minitraxx.whisperflow.service.WhisperAccessibilityService
 import de.minitraxx.whisperflow.ui.theme.WhisperFlowTheme
 import de.minitraxx.whisperflow.util.CostTracker
+import de.minitraxx.whisperflow.util.CustomVocab
 import de.minitraxx.whisperflow.whisper.ModelManager
 
 class MainActivity : ComponentActivity() {
@@ -92,6 +94,9 @@ class MainActivity : ComponentActivity() {
                 var previewEnabled by remember { mutableStateOf(prefs.getBoolean(FloatingButtonService.KEY_PREVIEW_ENABLED, false)) }
                 var onDeviceEnabled by remember { mutableStateOf(prefs.getBoolean(FloatingButtonService.KEY_ONDEVICE_WHISPER, false)) }
                 val onDeviceDiag = remember(refresh) { prefs.getString(FloatingButtonService.KEY_ONDEVICE_LAST_DIAG, "") ?: "" }
+                // Mit refresh geschlüsselt: der Floating-Button-Editor kann Wörter merken,
+                // während diese Activity im Hintergrund war — bei Rückkehr neu von der Platte lesen.
+                var customVocab by remember(refresh) { mutableStateOf(CustomVocab.getAll(this@MainActivity)) }
 
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val todaySpent = remember(refresh) { CostTracker.getTodaySpent(this) }
@@ -111,6 +116,7 @@ class MainActivity : ComponentActivity() {
                     spent = spent,
                     todaySpent = todaySpent,
                     budget = budget,
+                    customVocab = customVocab,
                     onRequestOverlay = {
                         startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                     },
@@ -160,6 +166,14 @@ class MainActivity : ComponentActivity() {
                     onBudgetLimitChange = { eur ->
                         CostTracker.setBudget(eur, this)
                         refreshTrigger++
+                    },
+                    onAddVocabWord = { word ->
+                        CustomVocab.add(this, word)
+                        customVocab = CustomVocab.getAll(this)
+                    },
+                    onRemoveVocabWord = { word ->
+                        CustomVocab.remove(this, word)
+                        customVocab = CustomVocab.getAll(this)
                     }
                 )
             }
@@ -183,6 +197,7 @@ fun MainScreen(
     todaySpent: Double,
     budget: Double,
     styleProfile: String,
+    customVocab: List<String>,
     onRequestOverlay: () -> Unit,
     onRequestMic: () -> Unit,
     onStartService: () -> Unit,
@@ -195,7 +210,9 @@ fun MainScreen(
     onPreviewEnabledChange: (Boolean) -> Unit,
     onOnDeviceEnabledChange: (Boolean) -> Unit,
     onResetBudget: () -> Unit,
-    onBudgetLimitChange: (Double) -> Unit
+    onBudgetLimitChange: (Double) -> Unit,
+    onAddVocabWord: (String) -> Unit,
+    onRemoveVocabWord: (String) -> Unit
 ) {
     val allSetUp = overlayGranted && micGranted
     val budgetExceeded = spent >= budget
@@ -269,6 +286,12 @@ fun MainScreen(
                 previewEnabled = previewEnabled,
                 onLanguageChange = onLanguageChange,
                 onPreviewEnabledChange = onPreviewEnabledChange
+            )
+            Spacer(Modifier.height(12.dp))
+            CustomVocabCard(
+                words = customVocab,
+                onAdd = onAddVocabWord,
+                onRemove = onRemoveVocabWord
             )
             Spacer(Modifier.height(12.dp))
             OnDeviceWhisperCard(
@@ -457,6 +480,74 @@ fun SettingsCard(
                         uncheckedTrackColor = Color(0xFF2C2C2E)
                     )
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun CustomVocabCard(words: List<String>, onAdd: (String) -> Unit, onRemove: (String) -> Unit) {
+    var input by remember { mutableStateOf("") }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Eigene Wörter", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(
+                "Namen oder Fachbegriffe, die Whisper oft falsch versteht — werden beim Transkribieren als Hinweis mitgegeben. Landen auch hier, wenn du im Editor eine Korrektur \"merkst\".",
+                color = Color(0xFF8E8E93), fontSize = 13.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+            )
+            if (words.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    words.forEach { word ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF2C2C2E), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(word, color = Color.White, fontSize = 14.sp)
+                            Text(
+                                "✕",
+                                color = Color(0xFF8E8E93),
+                                fontSize = 14.sp,
+                                modifier = Modifier.clickable { onRemove(word) }
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("z.B. Lasse", color = Color(0xFF8E8E93), fontSize = 13.sp) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF0A84FF), unfocusedBorderColor = Color(0xFF3A3A3C),
+                        cursorColor = Color(0xFF0A84FF)
+                    ),
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+                )
+                Button(
+                    onClick = {
+                        if (input.isNotBlank()) { onAdd(input.trim()); input = "" }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD60A)),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Text("Hinzufügen", color = Color(0xFF1C1C1E), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }

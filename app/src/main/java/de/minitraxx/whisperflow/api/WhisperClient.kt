@@ -17,14 +17,14 @@ object WhisperClient {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    suspend fun transcribe(file: File, apiKey: String, language: String = ""): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun transcribe(file: File, apiKey: String, language: String = "", prompt: String = ""): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val builder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file", file.name, file.asRequestBody("audio/m4a".toMediaType()))
                 .addFormDataPart("model", "whisper-1")
                 .addFormDataPart("response_format", "text")
-                .addFormDataPart("prompt", WhisperPrompts.contextPrompt(language))
+                .addFormDataPart("prompt", prompt)
             if (language.isNotBlank()) builder.addFormDataPart("language", language)
             val body = builder.build()
 

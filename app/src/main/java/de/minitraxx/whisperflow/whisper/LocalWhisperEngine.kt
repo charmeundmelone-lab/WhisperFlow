@@ -2,7 +2,6 @@ package de.minitraxx.whisperflow.whisper
 
 import android.content.Context
 import android.util.Log
-import de.minitraxx.whisperflow.api.WhisperPrompts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,15 +52,17 @@ object LocalWhisperEngine {
     /**
      * Transkribiert [audioFile] (M4A) lokal. [language] wie beim Cloud-Aufruf:
      * ""/blank = automatische Erkennung, sonst ISO-Code ("de", "en", ...).
+     * [prompt] ist bereits vom Aufrufer fertig zusammengesetzt (Kontext-Text
+     * + persönliches Wörterbuch) — dieselbe Quelle wie beim Cloud-Pfad.
      */
-    suspend fun transcribe(context: Context, audioFile: File, language: String): Result<String> {
+    suspend fun transcribe(context: Context, audioFile: File, language: String, prompt: String = ""): Result<String> {
         if (!busy.compareAndSet(false, true)) {
             return Result.failure(IllegalStateException("Engine beschäftigt"))
         }
         val appContext = context.applicationContext
         val deferred = engineScope.async {
             try {
-                runCatching { doTranscribe(appContext, audioFile, language) }
+                runCatching { doTranscribe(appContext, audioFile, language, prompt) }
             } finally {
                 busy.set(false)
             }
@@ -76,7 +77,7 @@ object LocalWhisperEngine {
             }
     }
 
-    private fun doTranscribe(context: Context, audioFile: File, language: String): String {
+    private fun doTranscribe(context: Context, audioFile: File, language: String, prompt: String): String {
         // Jede Phase wird sofort geloggt (nicht erst am Ende) — bei einem Timeout
         // kommt der Code nie zum finalen Log, aber die einzelnen mark()-Zeilen
         // sind schon in logcat sichtbar und zeigen exakt, wo die Zeit hingeht.
@@ -131,7 +132,7 @@ object LocalWhisperEngine {
 
         enterPhase("Inferenz")
         val text = WhisperJni.nativeTranscribe(
-            ctxPtr, samples, language.trim(), threads, WhisperPrompts.contextPrompt(language)
+            ctxPtr, samples, language.trim(), threads, prompt
         ) ?: throw IllegalStateException("Native Transkription fehlgeschlagen")
         mark("Inferenz")
         return text.trim()
