@@ -578,7 +578,7 @@ fun OnDeviceWhisperCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("On-Device Whisper (Beta)", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     Text(
-                        "Aufnahmen bis 90s werden kostenlos direkt auf dem Handy transkribiert — 0 € und offline. Längere Aufnahmen laufen weiter über die Cloud. Bei Problemen springt automatisch die Cloud ein.",
+                        "Aufnahmen bis 30s werden kostenlos direkt auf dem Handy transkribiert — 0 € und offline. Längere Aufnahmen laufen weiter über die Cloud. Bei Problemen springt automatisch die Cloud ein.",
                         color = Color(0xFF8E8E93), fontSize = 12.sp, lineHeight = 17.sp,
                         modifier = Modifier.padding(top = 2.dp)
                     )
