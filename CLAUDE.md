@@ -3,10 +3,12 @@
 ## Was diese App ist (aktueller Stand)
 
 **App-Name:** Laberboombox (Package bleibt `de.minitraxx.whisperflow`)
-**Letzter stabiler Build:** commit `24a53bc` auf `main` (v1.3.3) — On-Device Whisper (Option 1)
-komplett fertig UND auf echtem Gerät bestätigt: Performance (30s-Aufnahme → 12s lokal, 0€),
-Alltagssprache-Erkennung, Lärm-Robustheit (Auto-Diktat) und die Satzebene-Verhörer-Reparatur
-+ Emoji-Platzierung aus v1.3.3 laufen laut Nutzer "absolut fantastisch" ✓
+**Letzter stabiler Build:** commit `640e02a` auf `main` — On-Device Whisper (Option 1) bleibt
+bewusst bei **30s** (ein Versuch, auf 90s anzuheben, wurde nach Qualitätsproblemen sauber
+zurückgebaut, siehe Nachtrag 11 unten — dort auch der komplette Editor-Feature-Schub dieser
+Session: Wort-Editor per Tastatur, Weitersprechen, Editor-Material-Redesign, Emoji-Modus,
+persönliches Wörterbuch). versionCode/-Name im Repo unverändert bei 10 / 1.3.3 (nicht
+hochgezählt in dieser Session — bei Bedarf nachholen).
 
 Die App ist ein **Floating-Button-Diktierwerkzeug**:
 
@@ -403,6 +405,87 @@ Grundsätzlich sehr zufrieden, zwei Nachbesserungen gewünscht:
 - versionCode/-Name: 10 / 1.3.3. **Geräte-Test bestätigt** — Nutzer-Feedback: „Das
   funktioniert absolut fantastisch." Beide Nachbesserungen (Satzebene-Verhörer-Reparatur,
   Emoji-Platzierung) wirken wie gewünscht. Kein offenes Problem bei Option 1.
+
+**Nachtrag 11 (2026-07-07): Editor-Feature-Schub (Bugfixes, Wort-Editor, Weitersprechen,
+Redesign, Emoji-Modus, persönliches Wörterbuch) + 90s-Versuch samt sauberem Rückbau.**
+Eine einzelne lange Session (PRs #17–#28) hat den Bottom-Sheet-Editor deutlich ausgebaut und
+zwei Reliability-Bugs behoben. Chronologisch:
+
+- **PR #17/#18 — Editor-Bugfixes:** Der 30s-Auto-Stop-Timer der "Neu sprechen"-Aufnahme
+  wurde beim manuellen Stoppen nie abgebrochen — ein liegengebliebener Timer konnte eine
+  spätere Aufnahme verfrüht beenden ("Aufnahmezeit stark verkürzt beim zweiten Versuch").
+  Außerdem blieb das Status-Overlay ("Transkribiere (lokal)...") nach der Editor-Neuaufnahme
+  dauerhaft stehen, weil dieser Pfad (anders als `processAudio`) nie `hideStatus()` aufrief.
+  Beide behoben, inkl. Pulse-Ring + Live-Timer am Neu-sprechen-Button als Start/Stopp-Feedback.
+- **PR #19 — Wort-Editor per Tastatur:** Satz auswählen → "✏️ Bearbeiten" verwandelt ihn in
+  ein editierbares Textfeld mit System-Tastatur, statt eine neue Sprachaufnahme zu starten —
+  für einzelne Wörter zuverlässiger als ein kurzer Whisper-Durchlauf ohne Kontext. Overlay-
+  Fenster wird dafür kurzzeitig fokussierbar geschaltet (sonst bewusst `FLAG_NOT_FOCUSABLE`).
+- **PR #20 — Weitersprechen:** Neuer Toolbar-Button "🎙️+" hängt beliebig oft weitere
+  Aufnahmen (gleiches Duration-Preset wie die Hauptaufnahme, Claude-korrigiert im selben
+  Stilprofil) ans Ende der Satzliste an, statt einen bestehenden Satz zu ersetzen.
+- **PR #21 — Editor-Material-Redesign:** Der Editor trägt jetzt dieselbe Verlauf/Rand/Tiefe-
+  Sprache wie der Floating Button (Sheet-Hintergrund als Verlauf statt Flächenfarbe, Satzliste
+  mit Haarlinien + Gold-Auswahl-Tönung, Aktionsreihe im Idle-Metall-Verlauf) UND sämtliche
+  Emoji+Text-Buttons durch minimalistische Vektor-Icons ersetzt (`ic_delete`, `ic_edit`,
+  `ic_check`, `ic_undo`, `ic_copy`, `ic_stop`, `ic_add` — gleicher Stil wie das bestehende
+  `ic_mic`). Weitersprechen ist die einzige Aktion mit Gold-Verlauf (primäre Handlung),
+  Rückgängig/Kopieren bleiben stille Werkzeuge.
+- **PR #22 — Verhörer-Reparatur-Prompt-Lücke geschlossen:** Gemeldeter Fall "ist das schon
+  beglechen?" (statt "beglichen") wurde nicht korrigiert, weil die bestehende Regel am
+  Beispiel eines *ganzen* unsinnigen Satzes orientiert war ("Narben"/"Namen") — ein einzelnes
+  nicht-existierendes Wort in einem sonst grammatisch flüssigen Satz löste die Schwelle nicht
+  zuverlässig aus. Ergänzt in allen drei Stilprofilen: gilt jetzt ausdrücklich auch dann.
+- **PR #23/#24 — Emoji-Modus:** Viertes Stil-Profil "😀 Emoji" (Radialmenü-Zyklus
+  WA→PRO→FOR→😀, auch als Button in den Einstellungen) — Claude übersetzt das Diktat
+  sinngemäß in reine Emoji-Folgen statt Text zu bereinigen. Die automatische App-Erkennung
+  (erzwingt sonst WhatsApp/Professionell-Profil je nach Ziel-App) überschreibt einen bewusst
+  gewählten Emoji-Modus nicht mehr. Uhrzeiten werden exakt mit Ziffern-Emojis buchstabiert
+  ("14:37" → 1️⃣4️⃣:3️⃣7️⃣, kein Runden — Unicode hat keine Minuten-genauen Uhr-Symbole),
+  Daten als Tag.Monat + 📅, relative Angaben (heute/morgen/übermorgen/nächste Woche) über
+  eigene Symbole statt Ziffern.
+- **PR #25 — Persönliches Wörterbuch (`util/CustomVocab.kt`):** Namen/Fachbegriffe, die
+  Whisper wiederholt falsch versteht, werden als Zusatz an den bestehenden Whisper-Kontext-
+  Prompt angehängt (gemeinsame Quelle für Cloud- und On-Device-Pfad — `smartTranscribe()`
+  baut den Prompt jetzt zusammen und reicht ihn fertig an `WhisperClient`/`LocalWhisperEngine`
+  durch). Eleganter Zugang: im Wort-Editor erkennt eine Diff-Heuristik, ob genau ein Wort
+  geändert wurde (Namens-Verhörer, kein Satz-Umbau) — dann zeigt der Bearbeiten-Button kurz
+  ein "➕" statt sofort zum Stift zurückzukehren; Tap merkt das Wort, sonst verschwindet der
+  Hinweis nach ~4s von selbst. Zusätzlich eine simple Verwalten-Karte in den Einstellungen
+  (ansehen/hinzufügen/entfernen). Auf ~30 Einträge begrenzt (Whisper deckelt den
+  `prompt`-Parameter auf ~224 Tokens).
+- **PR #26/#27 — 90s-Versuch (später zurückgebaut, siehe unten):** Nutzerwunsch nach mehr
+  kostenloser Redezeit am Stück. `LOCAL_WHISPER_MAX_MS` 30s→90s angehoben (whisper.cpp
+  verarbeitet beliebig lange Audiodateien intern in einem `whisper_full()`-Aufruf, kein
+  App-seitiges Chunking nötig — die 30s-Grenze war reine Kostenpolitik, keine technische
+  Notwendigkeit). Danach gemeldet: bei 90s "wird viel wiederholt" — Recherche im
+  whisper.cpp-Quellcode + GitHub Issues (ggml-org/whisper.cpp #2186, #3744, Discussions
+  #2286/#1490) ergab zwei Ursachen, beide erst relevant seit mehrere interne 30s-Fenster
+  durchlaufen werden: `no_timestamps=true` entzieht dem Fenster-Weiterrücken (`seek_delta`)
+  die Berechnungsgrundlage (bekannter offener whisper.cpp-Bug), und unbegrenzte
+  Kontext-Weitergabe zwischen Fenstern ("condition on previous text") verstärkt einen
+  einmal fehlerhaften Fenster-Durchlauf über die folgenden Fenster selbst. Fix versucht:
+  `no_timestamps=false` + `n_max_text_ctx=0`. Beide Parameter-Namen gegen
+  `whisper.cpp/include/whisper.h` (Tag v1.9.1) verifiziert, Build erfolgreich.
+- **PR #28 — Rückbau von #26/#27:** Nach dem Wiederholungs-Fix meldete der Nutzer einen
+  neuen, wichtigeren Qualitätsverlust: die Transkription lief jetzt "genau im Wortlaut" —
+  Füllwörter/Versprecher wurden spürbar seltener herausgefiltert als vorher, mehr
+  Nacharbeit von Hand nötig. Arbeitshypothese: seit der 90s-Grenze läuft ein viel größerer
+  Anteil der Aufnahmen lokal statt über die Cloud, und das lokale Modell verhält sich beim
+  Umgang mit Füllwörtern/Versprechern anders. Statt weiterer Diagnose: sauberer,
+  vollständiger Rückbau beider PRs auf den letzten bestätigt guten Stand (nach dem
+  persönlichen Wörterbuch, Commit `5a787f6`) — **verifiziert**, `whisper_jni.cpp` ist danach
+  wieder byte-identisch zu diesem Commit. **On-Device Whisper bleibt damit bei 30s.**
+
+**Für eine neue Session:** Wort-Editor, Weitersprechen, Editor-Redesign, Emoji-Modus und
+persönliches Wörterbuch sind bestätigt gut (Nutzer-Feedback laufend positiv). Die 90s-Frage
+ist **erledigt und bewusst verworfen** — nicht von selbst wieder aufgreifen, außer der Nutzer
+bringt es erneut auf. Bei einem neuen Wunsch nach mehr On-Device-Redezeit: die in diesem
+Nachtrag dokumentierte Whisper.cpp-Mechanik (30s-Fenster, `condition_on_previous_text`,
+`no_timestamps`) ist die Grundlage, aber der letzte Versuch zeigte, dass mehr lokale
+Verarbeitung auf Kosten der Korrektur-Qualität ging — vor einem zweiten Versuch lohnt sich
+ein Vergleichstest (identischer Text, einmal 30s lokal vs. 90s lokal vs. 90s Cloud), um die
+tatsächliche Ursache diesmal vorab einzugrenzen, statt erneut live zu iterieren.
 
 **Ursprünglicher Status (2026-07-01):** Eine vorherige Session hatte das Konzept komplett
 durchgeplant (siehe Architektur unten); die damalige Umsetzung wurde bewusst zurückgebaut
