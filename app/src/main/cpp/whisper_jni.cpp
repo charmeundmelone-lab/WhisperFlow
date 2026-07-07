@@ -78,9 +78,25 @@ Java_de_minitraxx_whisperflow_whisper_WhisperJni_nativeTranscribe(
     params.print_timestamps = false;
     params.print_special    = false;
     params.translate        = false;
-    params.no_timestamps    = true;
+    // no_timestamps=false: Whisper verarbeitet Audio ueber 30s intern in mehreren
+    // Fenstern; das Weiterruecken zum naechsten Fenster (seek_delta) wird laut
+    // whisper.cpp-Quellcode "based on the decoded timestamp tokens" berechnet.
+    // Mit no_timestamps=true (frueherer Wert) fehlt genau diese Grundlage — bekannter,
+    // offener whisper.cpp-Bug ("Degraded quality with timestamps disabled", Issue #2186),
+    // der bei uns erst ab Aufnahmen >30s ueberhaupt zum Tragen kam (bis dahin genau EIN
+    // Fenster, kein Weiterruecken noetig). whisper_full_get_segment_text() gibt weiterhin
+    // reinen Fliesstext ohne Zeitstempel-Marker zurueck — keine Textfilterung noetig.
+    params.no_timestamps    = false;
     params.single_segment   = false;
     params.suppress_blank   = true;
+    // n_max_text_ctx=0: kein bereits erkannter Text wird als Kontext ans naechste
+    // 30s-Fenster weitergereicht. Ohne das faengt sich ein einmal leicht fehlerhaftes
+    // Fenster in einer Selbstverstaerkungs-Schleife (whisper.cpp-Community nennt das
+    // "condition on previous text"-Wiederholungs-Halluzination, Issues #3744/#2286/#1490)
+    // — genau das vom Nutzer gemeldete "viel wiederholt" bei 90s-Aufnahmen. Einziger
+    // Kompromiss: an den 30s/60s-Fenstergrenzen fehlt dem Modell der Anschluss-Kontext,
+    // falls ein Satz genau dort geschnitten wird — deutlich harmloser als Wiederholungen.
+    params.n_max_text_ctx   = 0;
     params.n_threads        = n_threads > 0 ? n_threads : 4;
     params.language         = (lang != nullptr && lang[0] != '\0') ? lang : "auto";
     if (prompt != nullptr && prompt[0] != '\0') {
