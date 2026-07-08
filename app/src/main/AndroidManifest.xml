@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Pomodoro-Timer: exakter Alarm auch im Doze-Stromsparmodus (Bildschirm aus) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:allowBackup="true"
@@ -36,6 +39,10 @@
             android:name=".service.FloatingButtonService"
             android:foregroundServiceType="microphone"
             android:configChanges="orientation|screenSize|screenLayout"
+            android:exported="false" />
+
+        <receiver
+            android:name=".service.PomodoroReceiver"
             android:exported="false" />
 
         <service
