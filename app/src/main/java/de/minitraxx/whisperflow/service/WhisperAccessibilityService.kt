@@ -64,6 +64,15 @@ class WhisperAccessibilityService : AccessibilityService() {
         }
     }
 
+    // Prüft ohne Seiteneffekt, ob es im Vordergrund ein editierbares Feld gibt —
+    // genutzt vom Parkplatz-Fallback, um vor dem Einfügen zu entscheiden, ob der
+    // Text ins Feld geht oder (mangels Ziel) in den Parkplatz wandert.
+    fun hasEditableTarget(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findBottomMostEditable(root)
+        return node != null
+    }
+
     // Finds the editable field with the highest Y position on screen (= bottom-most).
     // In chat apps the compose field is always at the bottom, so this is more reliable
     // than depth-first search when FOCUS_INPUT is lost (e.g. WhatsApp backgrounded).
@@ -94,5 +103,7 @@ class WhisperAccessibilityService : AccessibilityService() {
         fun inject(text: String) {
             instance?.injectText(text)
         }
+
+        fun hasEditableTarget(): Boolean = instance?.hasEditableTarget() ?: false
     }
 }

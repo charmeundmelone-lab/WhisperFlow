@@ -27,6 +27,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.ParkingBoardActivity"
+            android:exported="false"
+            android:label="Parkplatz" />
+
         <service
             android:name=".service.FloatingButtonService"
             android:foregroundServiceType="microphone"
