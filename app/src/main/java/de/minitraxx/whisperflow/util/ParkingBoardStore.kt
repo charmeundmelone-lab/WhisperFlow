@@ -76,6 +76,13 @@ object ParkingBoardStore {
         save(context, getAll(context).map { if (it.id == id) it.copy(status = status) else it })
     }
 
+    /** Ersetzt den Text eines Eintrags (Board-Editor). Leerer Text wird ignoriert. */
+    fun updateText(context: Context, id: Long, text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        save(context, getAll(context).map { if (it.id == id) it.copy(text = trimmed) else it })
+    }
+
     fun delete(context: Context, id: Long) {
         save(context, getAll(context).filterNot { it.id == id })
     }

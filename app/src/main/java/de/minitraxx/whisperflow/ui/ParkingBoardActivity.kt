@@ -20,8 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,7 +34,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -78,6 +84,10 @@ class ParkingBoardActivity : ComponentActivity() {
                         ParkingBoardStore.delete(this, id)
                         items = ParkingBoardStore.getAll(this)
                     },
+                    onEdit = { id, text ->
+                        ParkingBoardStore.updateText(this, id, text)
+                        items = ParkingBoardStore.getAll(this)
+                    },
                     onBack = { finish() }
                 )
             }
@@ -90,6 +100,7 @@ fun ParkingBoardScreen(
     items: List<ParkItem>,
     onMove: (Long, ParkStatus) -> Unit,
     onDelete: (Long) -> Unit,
+    onEdit: (Long, String) -> Unit,
     onBack: () -> Unit
 ) {
     val statusOrder = mapOf(ParkStatus.IN_PROGRESS to 0, ParkStatus.BACKLOG to 1, ParkStatus.DONE to 2)
@@ -97,6 +108,7 @@ fun ParkingBoardScreen(
         items.sortedWith(compareBy({ statusOrder[it.status] }, { it.createdAt }))
     }
     val wip = items.count { it.status == ParkStatus.IN_PROGRESS }
+    var editingId by remember { mutableStateOf<Long?>(null) }
 
     Column(
         modifier = Modifier
@@ -147,32 +159,44 @@ fun ParkingBoardScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(sorted, key = { it.id }) { item ->
-                    var menuOpen by remember { mutableStateOf(false) }
-                    Box {
-                        ParkItemRow(item = item, onTap = { menuOpen = true })
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            if (item.status != ParkStatus.BACKLOG) {
+                    if (editingId == item.id) {
+                        ParkItemEditRow(
+                            initial = item.text,
+                            onSave = { newText -> onEdit(item.id, newText); editingId = null },
+                            onCancel = { editingId = null }
+                        )
+                    } else {
+                        var menuOpen by remember { mutableStateOf(false) }
+                        Box {
+                            ParkItemRow(item = item, onTap = { menuOpen = true })
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Zurück in Backlog") },
-                                    onClick = { onMove(item.id, ParkStatus.BACKLOG); menuOpen = false }
+                                    text = { Text("Bearbeiten") },
+                                    onClick = { editingId = item.id; menuOpen = false }
+                                )
+                                if (item.status != ParkStatus.BACKLOG) {
+                                    DropdownMenuItem(
+                                        text = { Text("Zurück in Backlog") },
+                                        onClick = { onMove(item.id, ParkStatus.BACKLOG); menuOpen = false }
+                                    )
+                                }
+                                if (item.status != ParkStatus.IN_PROGRESS) {
+                                    DropdownMenuItem(
+                                        text = { Text("In Arbeit") },
+                                        onClick = { onMove(item.id, ParkStatus.IN_PROGRESS); menuOpen = false }
+                                    )
+                                }
+                                if (item.status != ParkStatus.DONE) {
+                                    DropdownMenuItem(
+                                        text = { Text("Fertig") },
+                                        onClick = { onMove(item.id, ParkStatus.DONE); menuOpen = false }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Löschen") },
+                                    onClick = { onDelete(item.id); menuOpen = false }
                                 )
                             }
-                            if (item.status != ParkStatus.IN_PROGRESS) {
-                                DropdownMenuItem(
-                                    text = { Text("In Arbeit") },
-                                    onClick = { onMove(item.id, ParkStatus.IN_PROGRESS); menuOpen = false }
-                                )
-                            }
-                            if (item.status != ParkStatus.DONE) {
-                                DropdownMenuItem(
-                                    text = { Text("Fertig") },
-                                    onClick = { onMove(item.id, ParkStatus.DONE); menuOpen = false }
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Löschen") },
-                                onClick = { onDelete(item.id); menuOpen = false }
-                            )
                         }
                     }
                 }
@@ -236,6 +260,62 @@ private fun ParkItemRow(item: ParkItem, onTap: () -> Unit) {
             fontSize = 14.sp,
             textDecoration = if (item.status == ParkStatus.DONE) TextDecoration.LineThrough else TextDecoration.None,
             modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun ParkItemEditRow(
+    initial: String,
+    onSave: (String) -> Unit,
+    onCancel: () -> Unit
+) {
+    var text by remember { mutableStateOf(initial) }
+    val focusRequester = remember { FocusRequester() }
+    // Beim Öffnen direkt fokussieren, damit die Tastatur ohne Extra-Tap kommt.
+    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(COLOR_CARD)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focusRequester),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedBorderColor = COLOR_PROGRESS,
+                unfocusedBorderColor = Color(0xFF3A3A3C),
+                cursorColor = COLOR_PROGRESS
+            ),
+            textStyle = TextStyle(fontSize = 14.sp),
+            shape = RoundedCornerShape(8.dp)
+        )
+        Text(
+            "✓",
+            color = COLOR_DONE,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .clickable { if (text.isNotBlank()) onSave(text) }
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+        )
+        Text(
+            "✕",
+            color = COLOR_MUTED,
+            fontSize = 18.sp,
+            modifier = Modifier
+                .clickable { onCancel() }
+                .padding(horizontal = 6.dp, vertical = 4.dp)
         )
     }
 }
