@@ -42,6 +42,7 @@ import de.minitraxx.whisperflow.api.ClaudeClient
 import de.minitraxx.whisperflow.api.StylePrompts
 import de.minitraxx.whisperflow.api.WhisperClient
 import de.minitraxx.whisperflow.api.WhisperPrompts
+import de.minitraxx.whisperflow.ui.ParkingBoardActivity
 import de.minitraxx.whisperflow.util.CostTracker
 import de.minitraxx.whisperflow.util.CustomVocab
 import de.minitraxx.whisperflow.util.ParkingBoardStore
@@ -83,8 +84,6 @@ class FloatingButtonService : Service() {
 
     private var durationBadgeView: TextView? = null
     private var durationBadgeParams: WindowManager.LayoutParams? = null
-    private var miniBadgeView: TextView? = null
-    private var miniBadgeParams: WindowManager.LayoutParams? = null
     private var emojiBadgeView: TextView? = null
     private var emojiBadgeParams: WindowManager.LayoutParams? = null
     private var parkBadgeView: TextView? = null
@@ -189,7 +188,6 @@ class FloatingButtonService : Service() {
         private const val MAX_RECORDING_SECONDS = 90
         private const val BOOM_WARNING_SECS = 10
         const val KEY_MAX_DURATION = "max_duration"
-        private const val DURATION_MINI = 10
         private val DURATION_PRESETS = listOf(30, 90, 180, 300)
         // On-Device Whisper (Option 1): nur Aufnahmen bis 30s (ein Whisper-Fenster).
         // Kleiner Puffer, weil durationMs minimal über der Preset-Grenze liegen kann.
@@ -991,6 +989,13 @@ class FloatingButtonService : Service() {
         if (isRecording || isBoomPending) return
         captureTarget = CaptureTarget.PARK
         startRecording()
+    }
+
+    private fun openParkingBoard() {
+        startActivity(
+            Intent(this, ParkingBoardActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 
     private fun startRecording() {
@@ -1858,15 +1863,15 @@ class FloatingButtonService : Service() {
                         finishWordEdit()
                         val finalText = previewSentences.joinToString(" ")
                         hidePreviewOverlay()
-                        if (WhisperAccessibilityService.hasEditableTarget()) {
-                            WhisperAccessibilityService.inject(finalText)
-                        } else {
-                            ParkingBoardStore.add(this@FloatingButtonService, finalText)
-                            Toast.makeText(
-                                this@FloatingButtonService,
-                                "Kein Textfeld gefunden — in Parkplatz gespeichert",
-                                Toast.LENGTH_LONG
-                            ).show()
+                        WhisperAccessibilityService.inject(finalText) { found ->
+                            if (!found) {
+                                ParkingBoardStore.add(this@FloatingButtonService, finalText)
+                                Toast.makeText(
+                                    this@FloatingButtonService,
+                                    "Kein Textfeld gefunden — in Parkplatz gespeichert",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
                         true
                     } else false
@@ -2529,23 +2534,29 @@ class FloatingButtonService : Service() {
         durationBadgeParams = dParams
         windowManager.addView(dBadge, dParams)
 
-        // ── Top badge: ⚡ Mini shortcut ────────────────────────────────────────
-        val mBadge = TextView(this).apply {
-            text = "⚡"
-            textSize = 12f
+        // ── Top badge: Parkplatz-Erfassung ────────────────────────────────────
+        // Kurzer Tap öffnet direkt das Parkplatz-Board (kein Umweg über die
+        // Haupt-App). Langes Drücken (wie beim Radialmenü) startet stattdessen
+        // eine Aufnahme, die statt in die Vordergrund-App in den Parkplatz
+        // wandert — bewusst als zweiter, etwas schwererer Schritt, damit ein
+        // versehentliches Antippen höchstens das Board öffnet statt ungewollt
+        // das Mikro laufen zu lassen.
+        val pBadge = TextView(this).apply {
+            text = "🅿️"
+            textSize = 15f
             gravity = Gravity.CENTER
-            background = buildBadgeBg(dp, active = currentMaxSeconds == DURATION_MINI)
-            setTextColor(if (currentMaxSeconds == DURATION_MINI) Color.parseColor("#1C1C1E") else Color.WHITE)
+            background = buildBadgeBg(dp, active = false)
         }
-        val mParams = overlayParams(
+        val pParams = overlayParams(
             w = miniW, h = badgeH,
             x = params.x + (buttonSize - miniW) / 2,
             y = params.y - badgeH - gap
         )
-        mBadge.setOnClickListener { applyDuration(DURATION_MINI) }
-        miniBadgeView   = mBadge
-        miniBadgeParams = mParams
-        windowManager.addView(mBadge, mParams)
+        pBadge.setOnClickListener { openParkingBoard() }
+        pBadge.setOnLongClickListener { startParkRecording(); true }
+        parkBadgeView   = pBadge
+        parkBadgeParams = pParams
+        windowManager.addView(pBadge, pParams)
 
         // ── Side badge: emoji on/off ──────────────────────────────────────────
         val emojiW = (32 * dp).toInt()
@@ -2567,26 +2578,6 @@ class FloatingButtonService : Service() {
         emojiBadgeView   = eBadge
         emojiBadgeParams = eParams
         windowManager.addView(eBadge, eParams)
-
-        // ── Side badge (stacked below emoji): Parkplatz-Erfassung ─────────────
-        // Ein Tap startet direkt eine Aufnahme, die statt in die Vordergrund-App
-        // in den Parkplatz wandert — kein Menü, keine Zwischenschritte, damit ein
-        // spontaner Gedanke ohne Umweg festgehalten werden kann.
-        val pBadge = TextView(this).apply {
-            text = "🅿️"
-            textSize = 15f
-            gravity = Gravity.CENTER
-            background = buildBadgeBg(dp, active = false)
-        }
-        val pParams = overlayParams(
-            w = emojiW, h = emojiH,
-            x = emojiBadgeX(emojiW),
-            y = eParams.y + emojiH + gap
-        )
-        pBadge.setOnClickListener { startParkRecording() }
-        parkBadgeView   = pBadge
-        parkBadgeParams = pParams
-        windowManager.addView(pBadge, pParams)
     }
 
     private fun emojiBadgeX(badgeW: Int): Int {
@@ -2624,20 +2615,12 @@ class FloatingButtonService : Service() {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putInt(KEY_MAX_DURATION, seconds).apply()
 
-        val dp = resources.displayMetrics.density
-        val isMini = seconds == DURATION_MINI
-
         durationBadgeView?.text = durationLabel(seconds)
-
-        miniBadgeView?.apply {
-            background = buildBadgeBg(dp, active = isMini)
-            setTextColor(if (isMini) Color.parseColor("#1C1C1E") else Color.WHITE)
-        }
 
         resetInactivityTimer()
 
-        // subtle pulse feedback on both badges
-        listOfNotNull(durationBadgeView, miniBadgeView).forEach { v ->
+        // subtle pulse feedback
+        durationBadgeView?.let { v ->
             v.animate().cancel()
             v.animate().scaleX(0.88f).scaleY(0.88f).setDuration(70)
                 .withEndAction {
@@ -2663,7 +2646,6 @@ class FloatingButtonService : Service() {
         }
 
     private fun durationLabel(seconds: Int): String = when (seconds) {
-        DURATION_MINI -> "⚡"
         30            -> "30s"
         90            -> "90s"
         180           -> "3m"
@@ -2693,12 +2675,12 @@ class FloatingButtonService : Service() {
             p.y = params.y + buttonSize + gap
             durationBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
         }
-        miniBadgeParams?.let { p ->
+        parkBadgeParams?.let { p ->
             val w = p.width
             val h = p.height
             p.x = (params.x + (buttonSize - w) / 2).coerceIn(0, (sw - w).coerceAtLeast(0))
             p.y = (params.y - h - gap).coerceAtLeast(0)
-            miniBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
+            parkBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
         }
         emojiBadgeParams?.let { p ->
             val w = p.width
@@ -2707,17 +2689,10 @@ class FloatingButtonService : Service() {
             p.y = params.y + (buttonSize - h) / 2
             emojiBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
         }
-        parkBadgeParams?.let { p ->
-            val w = p.width
-            val h = p.height
-            p.x = emojiBadgeX(w).coerceIn(0, (sw - w).coerceAtLeast(0))
-            p.y = params.y + (buttonSize - h) / 2 + h + gap
-            parkBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
-        }
     }
 
     private fun showBadges() {
-        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView, parkBadgeView).forEach { v ->
+        listOfNotNull(durationBadgeView, emojiBadgeView, parkBadgeView).forEach { v ->
             v.animate().cancel()
             v.alpha = 0f
             v.scaleX = 0.82f
@@ -2731,7 +2706,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun hideBadges() {
-        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView, parkBadgeView).forEach { v ->
+        listOfNotNull(durationBadgeView, emojiBadgeView, parkBadgeView).forEach { v ->
             v.animate().cancel()
             v.animate().alpha(0f).scaleX(0.82f).scaleY(0.82f)
                 .setDuration(140)
@@ -2744,9 +2719,6 @@ class FloatingButtonService : Service() {
         runCatching { durationBadgeView?.let { windowManager.removeView(it) } }
         durationBadgeView   = null
         durationBadgeParams = null
-        runCatching { miniBadgeView?.let { windowManager.removeView(it) } }
-        miniBadgeView   = null
-        miniBadgeParams = null
         runCatching { emojiBadgeView?.let { windowManager.removeView(it) } }
         emojiBadgeView   = null
         emojiBadgeParams = null

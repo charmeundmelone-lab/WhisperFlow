@@ -46,8 +46,11 @@ object ParkingBoardStore {
     }
 
     fun add(context: Context, text: String): ParkItem {
-        val now = System.currentTimeMillis()
-        val item = ParkItem(id = now, text = text.trim(), status = ParkStatus.BACKLOG, createdAt = now)
+        // System.nanoTime() statt currentTimeMillis(): wenn eine Aufnahme mehrere
+        // Gedanken liefert, entstehen mehrere add()-Aufrufe in derselben Schleife —
+        // Millisekunden-Auflösung kollidiert dabei leicht (führte zu doppelten IDs
+        // und einem Compose-Crash, da die Board-Liste die ID als Schlüssel nutzt).
+        val item = ParkItem(id = System.nanoTime(), text = text.trim(), status = ParkStatus.BACKLOG, createdAt = System.currentTimeMillis())
         save(context, getAll(context) + item)
         return item
     }

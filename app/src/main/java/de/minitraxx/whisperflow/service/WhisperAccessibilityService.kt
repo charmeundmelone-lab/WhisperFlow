@@ -36,11 +36,19 @@ class WhisperAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    fun injectText(text: String) {
+    // onFound meldet zurück, ob überhaupt ein editierbares Feld gefunden wurde —
+    // genutzt vom Parkplatz-Fallback (kein Feld → Text landet im Parkplatz statt
+    // verloren zu gehen). Bewusst EINE einzige Abfrage des Bedienungshilfen-Baums
+    // (statt eines separaten Vorab-Checks): ein zweiter, unabhängiger Baum-Fetch
+    // kurz vor diesem hier führte zu unzuverlässigen AccessibilityNodeInfo-Treffern
+    // und ließ das Einfügen manchmal beim reinen Zwischenablage-Fallback stehen
+    // bleiben, statt tatsächlich einzufügen.
+    fun injectText(text: String, onFound: (Boolean) -> Unit = {}) {
         handler.post {
-            val root = rootInActiveWindow ?: return@post
-            val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                ?: findBottomMostEditable(root)
+            val root = rootInActiveWindow
+            val node = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: root?.let { findBottomMostEditable(it) }
+            onFound(node != null)
             if (node != null) {
                 node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                 handler.postDelayed({
@@ -62,15 +70,6 @@ class WhisperAccessibilityService : AccessibilityService() {
                 }, 150)
             }
         }
-    }
-
-    // Prüft ohne Seiteneffekt, ob es im Vordergrund ein editierbares Feld gibt —
-    // genutzt vom Parkplatz-Fallback, um vor dem Einfügen zu entscheiden, ob der
-    // Text ins Feld geht oder (mangels Ziel) in den Parkplatz wandert.
-    fun hasEditableTarget(): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findBottomMostEditable(root)
-        return node != null
     }
 
     // Finds the editable field with the highest Y position on screen (= bottom-most).
@@ -100,10 +99,13 @@ class WhisperAccessibilityService : AccessibilityService() {
             private set
         private var instance: WhisperAccessibilityService? = null
 
-        fun inject(text: String) {
-            instance?.injectText(text)
+        fun inject(text: String, onFound: (Boolean) -> Unit = {}) {
+            val svc = instance
+            if (svc == null) {
+                onFound(false)
+            } else {
+                svc.injectText(text, onFound)
+            }
         }
-
-        fun hasEditableTarget(): Boolean = instance?.hasEditableTarget() ?: false
     }
 }
