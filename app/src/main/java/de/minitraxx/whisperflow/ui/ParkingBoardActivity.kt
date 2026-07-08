@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import de.minitraxx.whisperflow.ui.theme.WhisperFlowTheme
 import de.minitraxx.whisperflow.util.ParkItem
 import de.minitraxx.whisperflow.util.ParkStatus
@@ -115,6 +116,22 @@ class ParkingBoardActivity : ComponentActivity() {
                         PomodoroManager.cancel(ctx)
                         items = ParkingBoardStore.getAll(ctx)
                     },
+                    onFinishedDone = {
+                        val id = PomodoroManager.activeTaskId(ctx)
+                        if (id >= 0) ParkingBoardStore.updateStatus(ctx, id, ParkStatus.DONE)
+                        PomodoroManager.clearFinished(ctx)
+                        items = ParkingBoardStore.getAll(ctx)
+                    },
+                    onFinishedBacklog = {
+                        val id = PomodoroManager.activeTaskId(ctx)
+                        if (id >= 0) ParkingBoardStore.updateStatus(ctx, id, ParkStatus.BACKLOG)
+                        PomodoroManager.clearFinished(ctx)
+                        items = ParkingBoardStore.getAll(ctx)
+                    },
+                    onFinishedAgain = {
+                        PomodoroManager.restartSame(ctx)
+                        items = ParkingBoardStore.getAll(ctx)
+                    },
                     onBack = { finish() }
                 )
             }
@@ -130,6 +147,9 @@ fun ParkingBoardScreen(
     onEdit: (Long, String) -> Unit,
     onStartPomodoro: (Long, String, Int) -> Unit,
     onStopPomodoro: () -> Unit,
+    onFinishedDone: () -> Unit,
+    onFinishedBacklog: () -> Unit,
+    onFinishedAgain: () -> Unit,
     onBack: () -> Unit
 ) {
     val statusOrder = mapOf(ParkStatus.IN_PROGRESS to 0, ParkStatus.BACKLOG to 1, ParkStatus.DONE to 2)
@@ -156,6 +176,17 @@ fun ParkingBoardScreen(
             onPick = { dur -> onStartPomodoro(item.id, item.text, dur); pickerItem = null },
             onNoTimer = { onMove(item.id, ParkStatus.IN_PROGRESS); pickerItem = null },
             onDismiss = { pickerItem = null }
+        )
+    }
+
+    // In-App-Sicherheitsnetz: abgelaufener, noch nicht beantworteter Timer → Optionen
+    // direkt im Board zeigen (unabhängig davon, ob die Benachrichtigung durchkam).
+    if (PomodoroManager.isFinishedPending(context)) {
+        PomodoroFinishedDialog(
+            taskText = PomodoroManager.finishedTaskText(context),
+            onDone = onFinishedDone,
+            onBacklog = onFinishedBacklog,
+            onAgain = onFinishedAgain
         )
     }
 
@@ -387,6 +418,59 @@ private fun PomodoroPickerDialog(
             )
         }
     }
+}
+
+@Composable
+private fun PomodoroFinishedDialog(
+    taskText: String,
+    onDone: () -> Unit,
+    onBacklog: () -> Unit,
+    onAgain: () -> Unit
+) {
+    // Bleibt stehen, bis eine Option gewählt wurde (kein Wegtippen).
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1C1C1E))
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Zeit um! 🍅", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                taskText,
+                color = COLOR_MUTED,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp, bottom = 22.dp)
+            )
+            FinishedOption("Fertig", COLOR_DONE, onDone)
+            Spacer(Modifier.height(10.dp))
+            FinishedOption("Noch nicht", COLOR_MUTED, onBacklog)
+            Spacer(Modifier.height(10.dp))
+            FinishedOption("Nochmal", COLOR_PROGRESS, onAgain)
+        }
+    }
+}
+
+@Composable
+private fun FinishedOption(label: String, accent: Color, onClick: () -> Unit) {
+    Text(
+        label,
+        color = accent,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(vertical = 14.dp)
+    )
 }
 
 @Composable
