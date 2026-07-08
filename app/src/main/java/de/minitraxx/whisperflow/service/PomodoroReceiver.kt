@@ -3,6 +3,8 @@ package de.minitraxx.whisperflow.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import de.minitraxx.whisperflow.util.ParkStatus
 import de.minitraxx.whisperflow.util.ParkingBoardStore
 import de.minitraxx.whisperflow.util.PomodoroManager
@@ -16,8 +18,14 @@ class PomodoroReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            // Timer abgelaufen → Gong + Frage-Benachrichtigung
-            ACTION_FINISHED -> PomodoroManager.onFinished(context)
+            // Timer abgelaufen → Gong + Frage-Benachrichtigung. goAsync() hält den
+            // Receiver kurz am Leben, damit der Gong auch bei einem vom Alarm frisch
+            // gestarteten Prozess sicher abgespielt wird, bevor onReceive endet.
+            ACTION_FINISHED -> {
+                val result = goAsync()
+                runCatching { PomodoroManager.onFinished(context) }
+                Handler(Looper.getMainLooper()).postDelayed({ runCatching { result.finish() } }, 3500)
+            }
 
             // Nutzer hat den laufenden Timer manuell gestoppt (Aufgabe bleibt in Arbeit)
             ACTION_STOP -> PomodoroManager.cancel(context)

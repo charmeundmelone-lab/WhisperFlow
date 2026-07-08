@@ -8,6 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import de.minitraxx.whisperflow.R
 import de.minitraxx.whisperflow.service.PomodoroReceiver
@@ -30,6 +34,10 @@ object PomodoroManager {
     private const val KEY_TASK_TEXT = "pomo_task_text"
     private const val KEY_END = "pomo_end"
     private const val KEY_DURATION = "pomo_duration_min"
+    // Timer abgelaufen, aber vom Nutzer noch nicht beantwortet (Fertig/Noch nicht/
+    // Nochmal). Dient dem In-App-Sicherheitsnetz: falls die Benachrichtigung mal
+    // unterdrückt wird, zeigt das Board die drei Optionen selbst beim Öffnen.
+    private const val KEY_FINISHED_PENDING = "pomo_finished_pending"
 
     const val CHANNEL_RUNNING = "pomodoro_running"
     const val CHANNEL_DONE = "pomodoro_done"
@@ -46,6 +54,10 @@ object PomodoroManager {
     private fun taskText(context: Context): String = prefs(context).getString(KEY_TASK_TEXT, "") ?: ""
     private fun durationMin(context: Context): Int = prefs(context).getInt(KEY_DURATION, 25)
 
+    /** Abgelaufen und noch nicht beantwortet? (In-App-Sicherheitsnetz für die Optionen.) */
+    fun isFinishedPending(context: Context): Boolean = prefs(context).getBoolean(KEY_FINISHED_PENDING, false)
+    fun finishedTaskText(context: Context): String = taskText(context)
+
     fun remainingMs(context: Context): Long =
         if (isActive(context)) (endTime(context) - System.currentTimeMillis()).coerceAtLeast(0) else 0
 
@@ -53,6 +65,7 @@ object PomodoroManager {
         val end = System.currentTimeMillis() + durationMin * 60_000L
         prefs(context).edit()
             .putBoolean(KEY_ACTIVE, true)
+            .putBoolean(KEY_FINISHED_PENDING, false)
             .putLong(KEY_TASK_ID, taskId)
             .putString(KEY_TASK_TEXT, taskText)
             .putLong(KEY_END, end)
@@ -78,8 +91,43 @@ object PomodoroManager {
         nm.cancel(NOTIF_RUNNING)
         // Aufgaben-ID/Text bleiben in den Prefs, damit die Aktions-Knöpfe der
         // Frage-Benachrichtigung sie noch auflösen können; nur "läuft" endet.
-        prefs(context).edit().putBoolean(KEY_ACTIVE, false).apply()
+        // FINISHED_PENDING → das Board zeigt die Optionen beim Öffnen zusätzlich selbst.
+        prefs(context).edit()
+            .putBoolean(KEY_ACTIVE, false)
+            .putBoolean(KEY_FINISHED_PENDING, true)
+            .apply()
         postDoneNotification(context, text)
+        // Gong + Vibration bewusst EXPLIZIT (nicht nur über den Kanal-Ton): so kommt
+        // der Ton über den Alarm-Audiostream garantiert — auch bei "Nicht stören" und
+        // selbst wenn der Benachrichtigungston vom System unterdrückt würde.
+        playGong(context)
+        vibrate(context)
+    }
+
+    private fun playGong(context: Context) {
+        runCatching {
+            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val ringtone = RingtoneManager.getRingtone(context, uri)
+            ringtone.audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            ringtone.play()
+        }
+    }
+
+    private fun vibrate(context: Context) {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            val pattern = longArrayOf(0, 400, 250, 400)
+            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        }
     }
 
     /** Nach beantworteter Frage-Benachrichtigung: alles aufräumen. */
@@ -88,6 +136,7 @@ object PomodoroManager {
         context.getSystemService(NotificationManager::class.java).cancel(NOTIF_DONE)
         prefs(context).edit()
             .putBoolean(KEY_ACTIVE, false)
+            .putBoolean(KEY_FINISHED_PENDING, false)
             .remove(KEY_TASK_ID)
             .remove(KEY_TASK_TEXT)
             .apply()
@@ -107,12 +156,16 @@ object PomodoroManager {
     private fun scheduleAlarm(context: Context, end: Long) {
         val am = context.getSystemService(AlarmManager::class.java)
         val pi = alarmPendingIntent(context)
+        // setAlarmClock: Android behandelt das wie einen echten Wecker — feuert exakt
+        // zur Zeit, auch im Doze-Modus, und wird von OEM-Stromsparmaßnahmen (Nothing OS
+        // u.a.) praktisch nicht verzögert. Deutlich zuverlässiger als
+        // setExactAndAllowWhileIdle, das bei sideloadeten Apps in den ungenauen Fallback
+        // rutschen und den Gong verschlucken konnte.
         runCatching {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, end, pi)
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(end, openBoardIntent(context)), pi)
         }.onFailure {
-            // Falls exakte Alarme (Android 12/13) nicht erlaubt sind: ungenauer,
-            // aber immer noch Doze-fähiger Fallback — geht höchstens minimal daneben.
-            runCatching { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, end, pi) }
+            runCatching { am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, end, pi) }
+                .onFailure { runCatching { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, end, pi) } }
         }
     }
 
@@ -191,16 +244,13 @@ object PomodoroManager {
             )
         }
         if (nm.getNotificationChannel(CHANNEL_DONE) == null) {
+            // Heads-up (hohe Priorität), aber bewusst OHNE Kanal-Ton/Vibration:
+            // Gong und Vibration werden in onFinished explizit ausgelöst, damit es
+            // nicht doppelt tönt und der Alarm-Audiostream (auch bei "Nicht stören")
+            // zuverlässig greift.
             val ch = NotificationChannel(CHANNEL_DONE, "Pomodoro fertig", NotificationManager.IMPORTANCE_HIGH).apply {
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 400, 250, 400)
-                val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                val attrs = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-                setSound(sound, attrs)
+                setSound(null, null)
+                enableVibration(false)
             }
             nm.createNotificationChannel(ch)
         }
