@@ -44,6 +44,7 @@ import de.minitraxx.whisperflow.api.WhisperClient
 import de.minitraxx.whisperflow.api.WhisperPrompts
 import de.minitraxx.whisperflow.util.CostTracker
 import de.minitraxx.whisperflow.util.CustomVocab
+import de.minitraxx.whisperflow.util.ParkingBoardStore
 import de.minitraxx.whisperflow.whisper.LocalWhisperEngine
 import de.minitraxx.whisperflow.whisper.ModelManager
 import kotlinx.coroutines.*
@@ -86,6 +87,16 @@ class FloatingButtonService : Service() {
     private var miniBadgeParams: WindowManager.LayoutParams? = null
     private var emojiBadgeView: TextView? = null
     private var emojiBadgeParams: WindowManager.LayoutParams? = null
+    private var parkBadgeView: TextView? = null
+    private var parkBadgeParams: WindowManager.LayoutParams? = null
+
+    // Wohin die aktuell laufende Aufnahme geht: normale Text-Injection (Standard)
+    // oder Parkplatz (per 🅿️-Badge ausgelöst). Wird von der Badge direkt vor
+    // startRecording() gesetzt und nach JEDEM Aufnahme-Ende (stop/discard/BOOM)
+    // wieder auf INJECT zurückgesetzt, damit kein Zustand in die nächste,
+    // regulär gestartete Aufnahme durchsickert.
+    private enum class CaptureTarget { INJECT, PARK }
+    private var captureTarget = CaptureTarget.INJECT
 
     private var statusView: TextView? = null
     private var statusParams: WindowManager.LayoutParams? = null
@@ -935,6 +946,7 @@ class FloatingButtonService : Service() {
     private fun discardRecording() {
         if (!isRecording) return
         isRecording = false
+        captureTarget = CaptureTarget.INJECT
         discardGestureActive = false
         amplitudeHandler.removeCallbacks(amplitudeRunnable)
         timerHandler.removeCallbacksAndMessages(null)
@@ -973,6 +985,12 @@ class FloatingButtonService : Service() {
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(this@FloatingButtonService, "Aufnahme verworfen", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun startParkRecording() {
+        if (isRecording || isBoomPending) return
+        captureTarget = CaptureTarget.PARK
+        startRecording()
     }
 
     private fun startRecording() {
@@ -1059,6 +1077,8 @@ class FloatingButtonService : Service() {
     }
 
     private fun stopRecording(transcribe: Boolean) {
+        val target = captureTarget
+        captureTarget = CaptureTarget.INJECT
         val durationMs = (System.currentTimeMillis() - recordingStartTime).coerceAtLeast(0)
         runCatching { mediaRecorder?.apply { stop(); release() } }
         mediaRecorder = null
@@ -1101,13 +1121,17 @@ class FloatingButtonService : Service() {
         }
 
         showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
-        serviceScope.launch { processAudio(file, durationMs) }
+        serviceScope.launch {
+            if (target == CaptureTarget.PARK) processParkAudio(file, durationMs) else processAudio(file, durationMs)
+        }
     }
 
     // ── BOOM! auto-stop at 90 seconds ─────────────────────────────────────────
 
     private fun triggerBoomStop() {
         if (!isRecording || isBoomPending) return
+        val target = captureTarget
+        captureTarget = CaptureTarget.INJECT
         val durationMs = (System.currentTimeMillis() - recordingStartTime).coerceAtLeast(0)
         runCatching { mediaRecorder?.apply { stop(); release() } }
         mediaRecorder = null
@@ -1158,7 +1182,9 @@ class FloatingButtonService : Service() {
             }
 
             showStatus("Transkribiere...", Color.parseColor("#8E8E93"))
-            serviceScope.launch { processAudio(file, durationMs) }
+            serviceScope.launch {
+                if (target == CaptureTarget.PARK) processParkAudio(file, durationMs) else processAudio(file, durationMs)
+            }
         }, 1500)
     }
 
@@ -1455,6 +1481,44 @@ class FloatingButtonService : Service() {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("whisperflow", finalText))
             }
+        }
+    }
+
+    // ── Parkplatz: leichtgewichtiger Capture-Pfad ohne Claude-Korrektur/Editor ──
+    // Ein spontaner Gedanke soll so schnell wie möglich wieder aus dem Weg sein —
+    // kein Stil-Profil, kein Bottom-Sheet-Editor, nur Whisper + Füllwort-Cleanup.
+
+    private suspend fun processParkAudio(file: File, durationMs: Long) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
+        val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
+        val whisperLanguage = if (language == "platt") "de" else language
+
+        val transcription = smartTranscribe(file, whisperLanguage, durationMs, openAiKey, trackCost = true)
+            .getOrElse {
+                showToast(
+                    if (it.message?.contains("API-Key") == true) it.message ?: "Kein OpenAI API-Key"
+                    else "Whisper-Fehler: ${it.message?.take(60)}"
+                )
+                hideStatus()
+                file.delete()
+                return
+            }
+            .removeFillWords()
+            .replacePunctuationWords()
+            .trim()
+        file.delete()
+
+        if (transcription.isBlank()) {
+            hideStatus()
+            return
+        }
+
+        ParkingBoardStore.add(this, transcription)
+
+        withContext(Dispatchers.Main) {
+            showStatus("🅿️ Im Parkplatz gespeichert", Color.parseColor("#6FAE7C"))
+            hideStatus(1600)
         }
     }
 
@@ -1770,11 +1834,21 @@ class FloatingButtonService : Service() {
                 MotionEvent.ACTION_UP -> {
                     val dy = touchDownY - event.rawY
                     if (dy > 80 * dp) {
-                        // Swipe up → insert
+                        // Swipe up → insert (Fallback: kein Textfeld im Vordergrund fokussiert
+                        // → Text geht nicht verloren, sondern landet im Parkplatz)
                         finishWordEdit()
                         val finalText = previewSentences.joinToString(" ")
                         hidePreviewOverlay()
-                        WhisperAccessibilityService.inject(finalText)
+                        if (WhisperAccessibilityService.hasEditableTarget()) {
+                            WhisperAccessibilityService.inject(finalText)
+                        } else {
+                            ParkingBoardStore.add(this@FloatingButtonService, finalText)
+                            Toast.makeText(
+                                this@FloatingButtonService,
+                                "Kein Textfeld gefunden — in Parkplatz gespeichert",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                         true
                     } else false
                 }
@@ -2474,6 +2548,26 @@ class FloatingButtonService : Service() {
         emojiBadgeView   = eBadge
         emojiBadgeParams = eParams
         windowManager.addView(eBadge, eParams)
+
+        // ── Side badge (stacked below emoji): Parkplatz-Erfassung ─────────────
+        // Ein Tap startet direkt eine Aufnahme, die statt in die Vordergrund-App
+        // in den Parkplatz wandert — kein Menü, keine Zwischenschritte, damit ein
+        // spontaner Gedanke ohne Umweg festgehalten werden kann.
+        val pBadge = TextView(this).apply {
+            text = "🅿️"
+            textSize = 15f
+            gravity = Gravity.CENTER
+            background = buildBadgeBg(dp, active = false)
+        }
+        val pParams = overlayParams(
+            w = emojiW, h = emojiH,
+            x = emojiBadgeX(emojiW),
+            y = eParams.y + emojiH + gap
+        )
+        pBadge.setOnClickListener { startParkRecording() }
+        parkBadgeView   = pBadge
+        parkBadgeParams = pParams
+        windowManager.addView(pBadge, pParams)
     }
 
     private fun emojiBadgeX(badgeW: Int): Int {
@@ -2594,10 +2688,17 @@ class FloatingButtonService : Service() {
             p.y = params.y + (buttonSize - h) / 2
             emojiBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
         }
+        parkBadgeParams?.let { p ->
+            val w = p.width
+            val h = p.height
+            p.x = emojiBadgeX(w).coerceIn(0, (sw - w).coerceAtLeast(0))
+            p.y = params.y + (buttonSize - h) / 2 + h + gap
+            parkBadgeView?.let { runCatching { windowManager.updateViewLayout(it, p) } }
+        }
     }
 
     private fun showBadges() {
-        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView).forEach { v ->
+        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView, parkBadgeView).forEach { v ->
             v.animate().cancel()
             v.alpha = 0f
             v.scaleX = 0.82f
@@ -2611,7 +2712,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun hideBadges() {
-        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView).forEach { v ->
+        listOfNotNull(durationBadgeView, miniBadgeView, emojiBadgeView, parkBadgeView).forEach { v ->
             v.animate().cancel()
             v.animate().alpha(0f).scaleX(0.82f).scaleY(0.82f)
                 .setDuration(140)
@@ -2630,6 +2731,9 @@ class FloatingButtonService : Service() {
         runCatching { emojiBadgeView?.let { windowManager.removeView(it) } }
         emojiBadgeView   = null
         emojiBadgeParams = null
+        runCatching { parkBadgeView?.let { windowManager.removeView(it) } }
+        parkBadgeView   = null
+        parkBadgeParams = null
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────

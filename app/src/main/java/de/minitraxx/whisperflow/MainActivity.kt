@@ -33,9 +33,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.minitraxx.whisperflow.service.FloatingButtonService
 import de.minitraxx.whisperflow.service.WhisperAccessibilityService
+import de.minitraxx.whisperflow.ui.ParkingBoardActivity
 import de.minitraxx.whisperflow.ui.theme.WhisperFlowTheme
 import de.minitraxx.whisperflow.util.CostTracker
 import de.minitraxx.whisperflow.util.CustomVocab
+import de.minitraxx.whisperflow.util.ParkStatus
+import de.minitraxx.whisperflow.util.ParkingBoardStore
 import de.minitraxx.whisperflow.whisper.ModelManager
 
 class MainActivity : ComponentActivity() {
@@ -101,6 +104,9 @@ class MainActivity : ComponentActivity() {
                 val spent = remember(refresh) { CostTracker.getSpent(this) }
                 val todaySpent = remember(refresh) { CostTracker.getTodaySpent(this) }
                 val budget = remember(refresh) { CostTracker.getBudget(this) }
+                val parkOpenCount = remember(refresh) {
+                    ParkingBoardStore.getAll(this).count { it.status != ParkStatus.DONE }
+                }
 
                 MainScreen(
                     overlayGranted = overlayGranted,
@@ -117,6 +123,10 @@ class MainActivity : ComponentActivity() {
                     todaySpent = todaySpent,
                     budget = budget,
                     customVocab = customVocab,
+                    parkOpenCount = parkOpenCount,
+                    onOpenParkingBoard = {
+                        startActivity(Intent(this, ParkingBoardActivity::class.java))
+                    },
                     onRequestOverlay = {
                         startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                     },
@@ -198,6 +208,8 @@ fun MainScreen(
     budget: Double,
     styleProfile: String,
     customVocab: List<String>,
+    parkOpenCount: Int,
+    onOpenParkingBoard: () -> Unit,
     onRequestOverlay: () -> Unit,
     onRequestMic: () -> Unit,
     onStartService: () -> Unit,
@@ -280,6 +292,8 @@ fun MainScreen(
             )
             Spacer(Modifier.height(12.dp))
             ProfileCard(currentProfile = styleProfile, onProfileChange = onStyleProfileChange)
+            Spacer(Modifier.height(12.dp))
+            ParkingBoardEntryCard(openCount = parkOpenCount, onOpen = onOpenParkingBoard)
             Spacer(Modifier.height(12.dp))
             SettingsCard(
                 language = language,
@@ -421,6 +435,36 @@ fun ProfileCard(currentProfile: String, onProfileChange: (String) -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun ParkingBoardEntryCard(openCount: Int, onOpen: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen() },
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text("🅿️ Parkplatz", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(
+                    if (openCount == 0) "Noch nichts geparkt"
+                    else "$openCount offen — tippen zum Ansehen",
+                    color = Color(0xFF8E8E93), fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Text("→", color = Color(0xFF8E8E93), fontSize = 18.sp)
         }
     }
 }
