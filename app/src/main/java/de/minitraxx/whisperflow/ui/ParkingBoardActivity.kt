@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
@@ -37,16 +38,20 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import de.minitraxx.whisperflow.ui.theme.WhisperFlowTheme
 import de.minitraxx.whisperflow.util.ParkItem
 import de.minitraxx.whisperflow.util.ParkStatus
 import de.minitraxx.whisperflow.util.ParkingBoardStore
+import de.minitraxx.whisperflow.util.PomodoroManager
+import kotlinx.coroutines.delay
 
 private val COLOR_BACKLOG = Color(0xFFD9695A)
 private val COLOR_PROGRESS = Color(0xFFFFD60A)
@@ -55,38 +60,60 @@ private val COLOR_MUTED = Color(0xFF8E8E93)
 private val COLOR_CARD = Color(0xFF1C1C1E)
 
 class ParkingBoardActivity : ComponentActivity() {
+    // Wird bei onResume erhöht → beim Zurückkehren aus der App (z.B. nachdem eine
+    // Pomodoro-Benachrichtigung bei ausgeschaltetem Bildschirm den Status geändert
+    // hat) wird die Liste frisch von der Platte geladen. Gleiches Muster wie MainActivity.
+    private var refreshTrigger by mutableStateOf(0)
+
+    override fun onResume() {
+        super.onResume()
+        refreshTrigger++
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             WhisperFlowTheme {
-                var items by remember { mutableStateOf(ParkingBoardStore.getAll(this)) }
+                val ctx = this
+                var items by remember(refreshTrigger) { mutableStateOf(ParkingBoardStore.getAll(ctx)) }
+
+                fun warnWipIfNeeded(id: Long) {
+                    val already = items.count { it.status == ParkStatus.IN_PROGRESS && it.id != id }
+                    if (already >= ParkingBoardStore.WIP_LIMIT) {
+                        Toast.makeText(
+                            ctx,
+                            "Schon ${ParkingBoardStore.WIP_LIMIT} Dinge in Arbeit — bewusst mehr?",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
 
                 ParkingBoardScreen(
                     items = items,
                     onMove = { id, status ->
-                        val alreadyInProgress = items.count {
-                            it.status == ParkStatus.IN_PROGRESS && it.id != id
-                        }
-                        val wipExceeded = status == ParkStatus.IN_PROGRESS &&
-                            alreadyInProgress >= ParkingBoardStore.WIP_LIMIT
-                        ParkingBoardStore.updateStatus(this, id, status)
-                        items = ParkingBoardStore.getAll(this)
-                        if (wipExceeded) {
-                            Toast.makeText(
-                                this,
-                                "Schon ${ParkingBoardStore.WIP_LIMIT} Dinge in Arbeit — bewusst mehr?",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                        if (status == ParkStatus.IN_PROGRESS) warnWipIfNeeded(id)
+                        ParkingBoardStore.updateStatus(ctx, id, status)
+                        items = ParkingBoardStore.getAll(ctx)
                     },
                     onDelete = { id ->
-                        ParkingBoardStore.delete(this, id)
-                        items = ParkingBoardStore.getAll(this)
+                        if (PomodoroManager.activeTaskId(ctx) == id) PomodoroManager.cancel(ctx)
+                        ParkingBoardStore.delete(ctx, id)
+                        items = ParkingBoardStore.getAll(ctx)
                     },
                     onEdit = { id, text ->
-                        ParkingBoardStore.updateText(this, id, text)
-                        items = ParkingBoardStore.getAll(this)
+                        ParkingBoardStore.updateText(ctx, id, text)
+                        items = ParkingBoardStore.getAll(ctx)
+                    },
+                    onStartPomodoro = { id, text, dur ->
+                        warnWipIfNeeded(id)
+                        ParkingBoardStore.updateStatus(ctx, id, ParkStatus.IN_PROGRESS)
+                        PomodoroManager.start(ctx, id, text, dur)
+                        items = ParkingBoardStore.getAll(ctx)
+                    },
+                    onStopPomodoro = {
+                        PomodoroManager.cancel(ctx)
+                        items = ParkingBoardStore.getAll(ctx)
                     },
                     onBack = { finish() }
                 )
@@ -101,6 +128,8 @@ fun ParkingBoardScreen(
     onMove: (Long, ParkStatus) -> Unit,
     onDelete: (Long) -> Unit,
     onEdit: (Long, String) -> Unit,
+    onStartPomodoro: (Long, String, Int) -> Unit,
+    onStopPomodoro: () -> Unit,
     onBack: () -> Unit
 ) {
     val statusOrder = mapOf(ParkStatus.IN_PROGRESS to 0, ParkStatus.BACKLOG to 1, ParkStatus.DONE to 2)
@@ -109,6 +138,26 @@ fun ParkingBoardScreen(
     }
     val wip = items.count { it.status == ParkStatus.IN_PROGRESS }
     var editingId by remember { mutableStateOf<Long?>(null) }
+    var pickerItem by remember { mutableStateOf<ParkItem?>(null) }
+
+    // Sekündlicher Tick nur fürs Live-Countdown des laufenden Pomodoro.
+    val context = LocalContext.current
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) { now = System.currentTimeMillis(); delay(1000) }
+    }
+    val pomoActive = PomodoroManager.isActive(context)
+    val pomoTaskId = if (pomoActive) PomodoroManager.activeTaskId(context) else -1L
+    val pomoRemainingMs = if (pomoActive) (PomodoroManager.endTime(context) - now).coerceAtLeast(0) else 0L
+
+    pickerItem?.let { item ->
+        PomodoroPickerDialog(
+            taskText = item.text,
+            onPick = { dur -> onStartPomodoro(item.id, item.text, dur); pickerItem = null },
+            onNoTimer = { onMove(item.id, ParkStatus.IN_PROGRESS); pickerItem = null },
+            onDismiss = { pickerItem = null }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -167,13 +216,21 @@ fun ParkingBoardScreen(
                         )
                     } else {
                         var menuOpen by remember { mutableStateOf(false) }
+                        val isRunningPomo = pomoActive && item.id == pomoTaskId
+                        val remainingLabel = if (isRunningPomo) formatRemaining(pomoRemainingMs) else null
                         Box {
-                            ParkItemRow(item = item, onTap = { menuOpen = true })
+                            ParkItemRow(item = item, remainingLabel = remainingLabel, onTap = { menuOpen = true })
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                 DropdownMenuItem(
                                     text = { Text("Bearbeiten") },
                                     onClick = { editingId = item.id; menuOpen = false }
                                 )
+                                if (isRunningPomo) {
+                                    DropdownMenuItem(
+                                        text = { Text("Pomodoro stoppen") },
+                                        onClick = { onStopPomodoro(); menuOpen = false }
+                                    )
+                                }
                                 if (item.status != ParkStatus.BACKLOG) {
                                     DropdownMenuItem(
                                         text = { Text("Zurück in Backlog") },
@@ -183,7 +240,7 @@ fun ParkingBoardScreen(
                                 if (item.status != ParkStatus.IN_PROGRESS) {
                                     DropdownMenuItem(
                                         text = { Text("In Arbeit") },
-                                        onClick = { onMove(item.id, ParkStatus.IN_PROGRESS); menuOpen = false }
+                                        onClick = { pickerItem = item; menuOpen = false }
                                     )
                                 }
                                 if (item.status != ParkStatus.DONE) {
@@ -207,7 +264,7 @@ fun ParkingBoardScreen(
 }
 
 @Composable
-private fun ParkItemRow(item: ParkItem, onTap: () -> Unit) {
+private fun ParkItemRow(item: ParkItem, remainingLabel: String? = null, onTap: () -> Unit) {
     val statusColor = when (item.status) {
         ParkStatus.BACKLOG -> COLOR_BACKLOG
         ParkStatus.IN_PROGRESS -> COLOR_PROGRESS
@@ -261,6 +318,74 @@ private fun ParkItemRow(item: ParkItem, onTap: () -> Unit) {
             textDecoration = if (item.status == ParkStatus.DONE) TextDecoration.LineThrough else TextDecoration.None,
             modifier = Modifier.weight(1f)
         )
+        if (remainingLabel != null) {
+            Text(
+                "🍅 $remainingLabel",
+                color = COLOR_PROGRESS,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+private fun formatRemaining(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val m = totalSec / 60
+    val s = totalSec % 60
+    return "%d:%02d".format(m, s)
+}
+
+@Composable
+private fun PomodoroPickerDialog(
+    taskText: String,
+    onPick: (Int) -> Unit,
+    onNoTimer: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1C1C1E))
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("🍅 Wie lange dranbleiben?", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text(
+                taskText,
+                color = COLOR_MUTED,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp, bottom = 20.dp)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PomodoroManager.DURATIONS_MIN.forEach { minutes ->
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(1.dp, Color(0x66FFD60A), RoundedCornerShape(14.dp))
+                            .background(Color(0x14FFD60A))
+                            .clickable { onPick(minutes) }
+                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("$minutes", color = COLOR_PROGRESS, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        Text("Min", color = COLOR_MUTED, fontSize = 11.sp)
+                    }
+                }
+            }
+            Text(
+                "Ohne Timer starten",
+                color = COLOR_MUTED,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .padding(top = 20.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onNoTimer() }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
     }
 }
 
