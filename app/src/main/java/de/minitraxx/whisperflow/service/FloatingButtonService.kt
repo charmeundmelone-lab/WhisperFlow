@@ -938,7 +938,16 @@ class FloatingButtonService : Service() {
 
     private fun toggleRecording() {
         if (isBoomPending) return
-        if (isRecording) stopRecording(transcribe = true) else startRecording()
+        if (isRecording) {
+            stopRecording(transcribe = true)
+        } else {
+            // Normale Aufnahme (Hauptbutton) IMMER als INJECT starten — verhindert,
+            // dass ein hängengebliebener PARK-Zustand (z.B. nach fehlgeschlagenem
+            // Parkplatz-Aufnahmestart) eine normale Aufnahme fälschlich in den
+            // Parkplatz umleitet und dabei die Claude-Stilkorrektur überspringt.
+            captureTarget = CaptureTarget.INJECT
+            startRecording()
+        }
     }
 
     private fun discardRecording() {
@@ -1074,6 +1083,9 @@ class FloatingButtonService : Service() {
             startPulseRing()
         }.onFailure {
             isRecording = false
+            // Zustand zurücksetzen, damit ein fehlgeschlagener (Parkplatz-)Start
+            // nicht in die nächste, regulär gestartete Aufnahme durchsickert.
+            captureTarget = CaptureTarget.INJECT
             recLabelView = null
             micIconView.visibility = View.VISIBLE
             lastRecordingFile = null
@@ -1523,14 +1535,17 @@ class FloatingButtonService : Service() {
             return
         }
 
-        val items = if (splitIntoSentences(transcription).size > 1 && anthropicKey.isNotBlank()) {
+        // Trennung nicht mehr an Whispers zufälliger Satzzeichen-Ausgabe festmachen
+        // (natürlich aneinandergereihte Gedanken haben oft kein ". " dazwischen).
+        // Stattdessen: bei mehr als ein paar Wörtern immer Claude entscheiden lassen —
+        // ist es nur EIN Gedanke, gibt der Split-Prompt ihn unverändert zurück.
+        val wordCount = transcription.split(Regex("\\s+")).count { it.isNotBlank() }
+        val items = if (wordCount > 5 && anthropicKey.isNotBlank()) {
             showStatus("Trenne Gedanken...", Color.parseColor("#8E8E93"))
             CostTracker.recordClaude(this)
             ClaudeClient.correct(transcription, StylePrompts.parkSplitPrompt(), anthropicKey)
                 .getOrNull()
-                ?.split("|||")
-                ?.map { it.trim() }
-                ?.filter { it.isNotEmpty() }
+                ?.let { parseParkSplit(it) }
                 ?.takeIf { it.isNotEmpty() }
                 ?: listOf(transcription)
         } else {
@@ -1544,6 +1559,19 @@ class FloatingButtonService : Service() {
             showStatus(message, Color.parseColor("#6FAE7C"))
             hideStatus(1600)
         }
+    }
+
+    // Zerlegt Claudes Split-Antwort robust in einzelne Gedanken: bevorzugt das
+    // vorgegebene |||-Trennzeichen, fällt aber auf Zeilenumbrüche zurück, falls
+    // Claude Haiku die stattdessen genutzt hat, und entfernt evtl. doch gesetzte
+    // führende Aufzählungszeichen oder Nummerierungen ("- ", "1. ", "• ").
+    private fun parseParkSplit(raw: String): List<String> {
+        val byPipe = raw.split("|||").map { it.trim() }.filter { it.isNotEmpty() }
+        val parts = if (byPipe.size > 1) byPipe
+            else raw.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        return parts
+            .map { it.replace(Regex("^\\s*(?:[-–—•*]|\\d+[.)])\\s*"), "").trim() }
+            .filter { it.isNotEmpty() }
     }
 
     // ── Korrektur-Vorschau (Bottom Sheet) ────────────────────────────────────
@@ -2500,6 +2528,15 @@ class FloatingButtonService : Service() {
         val dp = resources.displayMetrics.density
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         currentMaxSeconds = prefs.getInt(KEY_MAX_DURATION, 30)
+        // Migration: das ⚡-Badge (10s-Schnellmodus) wurde entfernt. Ein noch
+        // gespeicherter 10s-Wert (oder irgendein anderer Nicht-Preset-Wert) hätte
+        // sonst kein Bedien-Element mehr und würde jede Aufnahme schon nach 10s
+        // hart per BOOM abbrechen — fühlt sich wie abgeschnittene/kaputte
+        // Transkription an. Auf das Standard-Preset 30s zurücksetzen.
+        if (currentMaxSeconds !in DURATION_PRESETS) {
+            currentMaxSeconds = 30
+            prefs.edit().putInt(KEY_MAX_DURATION, 30).apply()
+        }
 
         val badgeW = (52 * dp).toInt()
         val badgeH = (22 * dp).toInt()
