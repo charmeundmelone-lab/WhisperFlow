@@ -30,7 +30,7 @@ object ParkingBoardStore {
     fun getAll(context: Context): List<ParkItem> {
         val raw = prefs(context).getString(KEY_PARK_ITEMS, "") ?: ""
         if (raw.isBlank()) return emptyList()
-        return runCatching {
+        val parsed = runCatching {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
@@ -43,6 +43,23 @@ object ParkingBoardStore {
                 )
             }
         }.getOrDefault(emptyList())
+
+        // Speicherstände von vor dem nanoTime()-Fix (siehe add()) können noch
+        // doppelte IDs enthalten — die Board-Liste nutzt die ID als Compose-
+        // Schlüssel, eine Dopplung crasht dort hart. Selbstheilend beim Laden
+        // reparieren, kein manuelles Aufräumen auf dem Gerät nötig.
+        val seen = mutableSetOf<Long>()
+        var repairedAny = false
+        val repaired = parsed.map { item ->
+            if (!seen.add(item.id)) {
+                repairedAny = true
+                item.copy(id = System.nanoTime())
+            } else {
+                item
+            }
+        }
+        if (repairedAny) save(context, repaired)
+        return repaired
     }
 
     fun add(context: Context, text: String): ParkItem {
