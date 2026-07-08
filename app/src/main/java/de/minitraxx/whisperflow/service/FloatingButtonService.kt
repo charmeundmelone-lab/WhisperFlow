@@ -1484,13 +1484,17 @@ class FloatingButtonService : Service() {
         }
     }
 
-    // ── Parkplatz: leichtgewichtiger Capture-Pfad ohne Claude-Korrektur/Editor ──
+    // ── Parkplatz: leichtgewichtiger Capture-Pfad ohne Claude-Stilkorrektur/Editor ──
     // Ein spontaner Gedanke soll so schnell wie möglich wieder aus dem Weg sein —
     // kein Stil-Profil, kein Bottom-Sheet-Editor, nur Whisper + Füllwort-Cleanup.
+    // Enthält die Aufnahme mehrere Sätze, kann das auf mehrere direkt hintereinander
+    // diktierte Gedanken hindeuten — dann trennt ein kleiner, gezielter Claude-Aufruf
+    // sie in eigene Listenpunkte (nur dann, sonst entstehen unnötige Kosten/Wartezeit).
 
     private suspend fun processParkAudio(file: File, durationMs: Long) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val openAiKey = (prefs.getString(KEY_OPENAI_API_KEY, "") ?: "").trim()
+        val anthropicKey = (prefs.getString(KEY_ANTHROPIC_API_KEY, "") ?: "").trim()
         val language = (prefs.getString(KEY_LANGUAGE, "") ?: "").trim()
         val whisperLanguage = if (language == "platt") "de" else language
 
@@ -1514,10 +1518,25 @@ class FloatingButtonService : Service() {
             return
         }
 
-        ParkingBoardStore.add(this, transcription)
+        val items = if (splitIntoSentences(transcription).size > 1 && anthropicKey.isNotBlank()) {
+            showStatus("Trenne Gedanken...", Color.parseColor("#8E8E93"))
+            CostTracker.recordClaude(this)
+            ClaudeClient.correct(transcription, StylePrompts.parkSplitPrompt(), anthropicKey)
+                .getOrNull()
+                ?.split("|||")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.takeIf { it.isNotEmpty() }
+                ?: listOf(transcription)
+        } else {
+            listOf(transcription)
+        }
+
+        items.forEach { ParkingBoardStore.add(this, it) }
 
         withContext(Dispatchers.Main) {
-            showStatus("🅿️ Im Parkplatz gespeichert", Color.parseColor("#6FAE7C"))
+            val message = if (items.size > 1) "🅿️ ${items.size} Punkte gespeichert" else "🅿️ Im Parkplatz gespeichert"
+            showStatus(message, Color.parseColor("#6FAE7C"))
             hideStatus(1600)
         }
     }
